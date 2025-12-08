@@ -59,6 +59,20 @@ Pesto allows you to bind specific folders on your computer to specific Roblox ga
    * **Export:** Sends scripts from Studio -> VS Code.
    * **Import:** Sends scripts from VS Code -> Studio (updates open scripts automatically!).
 
+## 🗑️ Uninstall
+
+To uninstall Pesto, you can run the following command:
+
+```bash
+pesto Uninstall
+```
+
+Alternatively, if you have the repository cloned, you can run:
+
+```bash
+./uninstall.sh
+```
+
 ---
 
 ## 🔒 Security

@@ -53,15 +53,16 @@ ServerTypesForSubparsers: Dict[str, str] = {
     'Server'           : 'POST GET'
 }; 
 DescriptionsForSubparsers: Dict[str, str] = {
-    'TwoWaySynchronize': 'Two-way synchronize data in Visual Studio Code and Roblox Studio',
+    # 'TwoWaySynchronize': 'Two-way synchronize data in Visual Studio Code and Roblox Studio',
 
-    'ExportSynchronize': 'One-way synchronize data from Visual Studio Code to Roblox Studio',
-    'ImportSynchronize': 'One-way synchronize data from Roblox Studio to Visual Studio Code',
+    # 'ExportSynchronize': 'One-way synchronize data from Visual Studio Code to Roblox Studio',
+    # 'ImportSynchronize': 'One-way synchronize data from Roblox Studio to Visual Studio Code',
 
     'Export'           : 'Export all data from Visual Studio Code to Roblox Studio',
     'Import'           : 'Import all data from Roblox Studio to Visual Studio Code',
 
-    'Server'           : 'Run the server'
+    'Server'           : 'Run the server',
+    'Uninstall'        : 'Uninstall Pesto from your system'
 }; 
 ArgumentsForSubparsers: List[Tuple[str, Type, str]] = [
     ('--Script',    str, 'Path to a certain script to be processed along with all its ancestry'),
@@ -457,6 +458,56 @@ if (__name__ == '__main__'):
 
     if (Command == 'Server'):
         ServerType = (Arguments.Requests); 
+
+    elif (Command == 'Uninstall'):
+        Confirm = input("Are you sure you want to uninstall Pesto? This will remove the ~/.pesto directory and the 'pesto' command. (y/n): ")
+        if Confirm.lower() != 'y':
+            print("Uninstall cancelled.")
+            sys.exit(0)
+            
+        InstallDir = os.path.expanduser("~/.pesto")
+        BinPath = "/usr/local/bin/pesto"
+        
+        # Remove symlink
+        if os.path.exists(BinPath) or os.path.islink(BinPath):
+            try:
+                os.remove(BinPath)
+                print(f"Removed {BinPath}")
+            except PermissionError:
+                print(f"Permission denied when removing {BinPath}. Trying with sudo...")
+                try:
+                    os.system(f"sudo rm {BinPath}")
+                    print(f"Removed {BinPath} with sudo")
+                except Exception as e:
+                    print(f"Failed to remove {BinPath}: {e}")
+                    print(f"Please remove it manually: sudo rm {BinPath}")
+
+        # Remove from .zshrc
+        ZshRc = os.path.expanduser("~/.zshrc")
+        if os.path.exists(ZshRc):
+            try:
+                with open(ZshRc, 'r') as f:
+                    Lines = f.readlines()
+                
+                NewLines = [Line for Line in Lines if '.pesto' not in Line]
+                
+                if len(Lines) != len(NewLines):
+                    with open(ZshRc, 'w') as f:
+                        f.writelines(NewLines)
+                    print(f"Removed Pesto from {ZshRc}")
+            except Exception as e:
+                print(f"Failed to update {ZshRc}: {e}")
+
+        # Remove installation directory
+        if os.path.exists(InstallDir):
+            try:
+                shutil.rmtree(InstallDir)
+                print(f"Removed {InstallDir}")
+            except Exception as e:
+                print(f"Failed to remove {InstallDir}: {e}")
+        
+        print("Pesto has been uninstalled.")
+        sys.exit(0)
 
     else:
         Script = (Arguments.Script); 
