@@ -8,10 +8,13 @@ venv/
 
 # Pesto
 .pesto_id
-game/
 *.rbxm
 *.rbxmx
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Development
+/scripts
+/icons
