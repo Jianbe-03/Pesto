@@ -25,6 +25,8 @@ This will install `pesto` as a global command on your system.
 3. Restart Roblox Studio.
 5. In **Game Settings** -> **Security**, enable **Allow HTTP Requests**.
 
+#### Local Download Is Currently Unavailable.
+```md
 #### Via Local Download
 
 1. Open **Roblox Studio**.
@@ -32,6 +34,7 @@ This will install `pesto` as a global command on your system.
 3. Copy `PestoPlugin.server.lua` from the `Pesto/RobloxPlugin` folder into your Plugins folder.
 4. Restart Roblox Studio.
 5. In **Game Settings** -> **Security**, enable **Allow HTTP Requests**.
+```
 
 ---
 
@@ -86,3 +89,8 @@ Pesto uses a `.pesto_id` file to bind a directory to a specific Roblox Universe 
 ## Contribution
 
 Big thanks to the original creator of [Silicon](https://github.com/ervum/Silicon), this repository wouldnt have existed without his.
+I heavily modified his repository and created my own plugin since his became unavailable.
+
+This repository can be forked and cloned, the plugin costs money because i really need money to pay for ad credits for my upcoming game.
+
+If i have enough robux (around 20k) then i will make this plugin free to use (of course paid users will get features faster and better)
