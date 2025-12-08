@@ -20,7 +20,7 @@ This will install `pesto` as a global command on your system.
 
 #### Via Roblox Website
 
-1. Open [**the plugin page**](example.com).
+1. Open [**the plugin page**](https://create.roblox.com/store/asset/124198645621974/Pesto).
 2. Download this plugin.
 3. Restart Roblox Studio.
 5. In **Game Settings** -> **Security**, enable **Allow HTTP Requests**.
