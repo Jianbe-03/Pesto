@@ -40,12 +40,11 @@ This will install `pesto` as a global command on your system.
 Pesto allows you to bind specific folders on your computer to specific Roblox games (Universes).
 
 1. **Create a Project Folder:**
-   ```bash
-   mkdir MyGame
-   cd MyGame
-   ```
+   Create a folder where you want your game to be synced to.
 
 2. **Start the Server:**
+   Open this new folder inside your IDE of choice and run this in the terminal.
+
    ```bash
    pesto Server
    ```
@@ -56,8 +55,8 @@ Pesto allows you to bind specific folders on your computer to specific Roblox ga
    * *Your game is now bound to this folder!*
 
 4. **Live Sync:**
-   * **Export:** Sends scripts from Studio -> VS Code.
-   * **Import:** Sends scripts from VS Code -> Studio (updates open scripts automatically!).
+   * **Export:** Sends scripts from Roblox Studio -> VS Code.
+   * **Import:** Sends scripts from VS Code -> Roblox Studio (updates open scripts automatically!).
 
 ## 🗑️ Uninstall
 
