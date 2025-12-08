@@ -311,20 +311,51 @@ def Import(Data: Dict[str, Any], Path: str = BasePath, IsLIVE: bool = False) -> 
 
         if (Key == SN):
             try:
-                with open(os.path.join(Path, SourceFileName), 'w', encoding = 'utf-8') as File:
-                    File.write(Value); 
+                FilePath = os.path.join(Path, SourceFileName)
+                Write = True
+                if os.path.exists(FilePath):
+                    try:
+                        with open(FilePath, 'r', encoding = 'utf-8') as File:
+                            if File.read() == Value:
+                                Write = False
+                    except:
+                        pass
+
+                if Write:
+                    print(f"Updating Source: {FilePath}")
+                    with open(FilePath, 'w', encoding = 'utf-8') as File:
+                        File.write(Value); 
 
             except Exception as e:
                 LogException(e, f'write Source File for {Path}!'); 
 
         elif (Key == PN):
             try:
-                with open(os.path.join(Path, PropertiesFileName), 'w', encoding = 'utf-8') as File:
-                    if UseYAML:
-                        yaml.dump(Value, File, default_flow_style = False, allow_unicode = True, sort_keys = False); 
+                FilePath = os.path.join(Path, PropertiesFileName)
+                Write = True
+                
+                if os.path.exists(FilePath):
+                    try:
+                        with open(FilePath, 'r', encoding='utf-8') as File:
+                            ExistingProps = {}
+                            if UseYAML:
+                                ExistingProps = yaml.safe_load(File)
+                            else:
+                                ExistingProps = json.load(File)
+                            
+                            if ExistingProps == Value:
+                                Write = False
+                    except:
+                        pass
+                
+                if Write:
+                    print(f"Updating Properties: {FilePath}")
+                    with open(FilePath, 'w', encoding = 'utf-8') as File:
+                        if UseYAML:
+                            yaml.dump(Value, File, default_flow_style = False, allow_unicode = True, sort_keys = False); 
 
-                    else:
-                        json.dump(Value, File, indent = 2); 
+                        else:
+                            json.dump(Value, File, indent = 2); 
 
             except Exception as e:
                 LogException(e, f'write Properties File for {Path}!'); 
