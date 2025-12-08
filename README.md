@@ -25,7 +25,7 @@ This will install `pesto` as a global command on your system.
 3. Restart Roblox Studio.
 5. In **Game Settings** -> **Security**, enable **Allow HTTP Requests**.
 
-#### Local Download Is Currently Unavailable.
+#### ⚠️ Local Download Is Currently Unavailable. ⚠️
 ```md
 #### Via Local Download
 
