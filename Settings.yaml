@@ -1,0 +1,44 @@
+PropertiesName                : '__Properties__'
+AttributesName                : '__Attributes__'
+TagsName                      : '__Tags__'
+SourceName                    : '__Source__'
+
+StringifiedPropertyName       : 'S__'
+DuplicatedAttributeName       : '__DuplicatedIndex__'
+UnnamedTableName              : '__Unnamed__'
+
+ServerHost                    : 'localhost'
+ServerPort                    : 6969
+
+ServerType                    : 'POST GET'
+
+PropertiesFileExtension       : 'yaml'   # Either 'YAML' or 'JSON'.
+SourceFileExtension           : 'luau'   # Typically, 'Lua' or 'Luau'.
+
+CleanUpBeforeImportInVSC      : false    # This setting doesn't work in LIVE-connection modes.
+CleanUpBeforeImportInRS       : false    # This setting doesn't work in LIVE-connection modes.
+
+SynchronizationVSCDebounceTime: 10.0
+SynchronizationRSDebounceTime : 0.1
+
+MaximumRSScriptLength         : 199999   # Roblox Studio's scripts `.Source` property is scriptable but has a limit of 200,000 characters, thus any script exceeding said restriction will be separated into parts.
+MaximumLengthRSScriptContainer: 'Folder' # In case the source of a script is too big causing it to be divided, the parent object of the different parts will be an object instantiated with this ClassName.
+
+ExportFromVSCMaximumLength    : false    # If a file's source length is over `MaximumRSScriptLength`, it won't be exported to Roblox Studio. Otherwise, when the files are imported back, they will naturally be separated into several modules called `{OriginalName}_{i} where i is the index of separation with a padded zero (00, 01, 02, ...).
+ExportFromRSDuplicated        : true     # In Roblox Studio, two files can be equally named within the same folder, yet that's typically not the case in the user's OS. If true, the exported will be called `{OriginalName}-{i}` where i is the index of duplication with a padded zero (00, 01, 02, ...).
+ExportFromRSDataChunkSize     : 819200   # Roblox Studio's HTTPService's POST Requests are limited to 1MB of data; this number represents 800KB (800 * 1,024) and is cautiously set in order to avoid errors. Can attempt to increase it.
+ExportFromRSPropertyBlacklist :          # By default, `Name`, `Parent` and `Disabled` properties of instances within Roblox Studio won't be exported to avoid redundancy and as an attempt to keep bytesizes as small as possible.
+  - 'Name'
+  - 'Parent'
+  - 'Disabled'                           # There's already `Enabled`.
+
+StatusHeader                  :
+  Request-Type: GETStatus
+
+SettingsHeader                :
+  Request-Type: POSTGETSettings
+DataHeader                    :
+  Request-Type: POSTGETData 
+
+LIVEHeader                    :
+  Request-Frequency: LIVE
