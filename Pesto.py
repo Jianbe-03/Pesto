@@ -1,14 +1,33 @@
 import traceback;
 import threading;  
 import argparse; 
-import requests; 
 import shutil; 
 import gzip; 
 import json; 
-import yaml; 
 import sys;
 import io; 
 import os; 
+import subprocess;
+
+def ensure_dependency(module_name, package_name=None):
+    if package_name is None:
+        package_name = module_name
+    try:
+        __import__(module_name)
+    except ImportError:
+        print(f"Installing missing dependency: {package_name}...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
+            print(f"Successfully installed {package_name}")
+        except subprocess.CalledProcessError:
+            print(f"Failed to install {package_name}. Please install it manually.")
+            sys.exit(1)
+
+ensure_dependency('requests');
+ensure_dependency('yaml', 'pyyaml');
+
+import requests;
+import yaml; 
 
 from typing      import Any, Optional, Union, Tuple, Dict, List, Type; 
 from argparse    import ArgumentParser, _SubParsersAction, Namespace; 

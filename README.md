@@ -18,23 +18,11 @@ This will install `pesto` as a global command on your system.
 
 ### 2. Install the Roblox Plugin
 
-#### Via Roblox Website
+Pesto requires a companion plugin in Roblox Studio to communicate with your computer.
 
-1. Open [**the plugin page**](https://create.roblox.com/store/asset/124198645621974/Pesto).
-2. Download this plugin.
-3. Restart Roblox Studio.
-5. In **Game Settings** -> **Security**, enable **Allow HTTP Requests**.
-
-#### ⚠️ Local Download Is Currently Unavailable. ⚠️
-```md
-#### Via Local Download
-
-1. Open **Roblox Studio**.
-2. Go to the **Plugins** tab -> **Plugins Folder**.
-3. Copy `PestoPlugin.server.lua` from the `Pesto/RobloxPlugin` folder into your Plugins folder.
-4. Restart Roblox Studio.
-5. In **Game Settings** -> **Security**, enable **Allow HTTP Requests**.
-```
+1.  **[Get the Pesto Plugin here](https://create.roblox.com/store/asset/124198645621974/Pesto)**.
+   *   *Why is it paid?* I'm an indie developer trying to fund ad credits for my upcoming game. Your support helps me keep building cool tools! Once I reach my goal, I plan to make a free version available.
+2.  In Roblox Studio, go to **Game Settings** -> **Security** and enable **Allow HTTP Requests**.
 
 ---
 
@@ -43,36 +31,31 @@ This will install `pesto` as a global command on your system.
 Pesto allows you to bind specific folders on your computer to specific Roblox games (Universes).
 
 1. **Create a Project Folder:**
-   Create a folder where you want your game to be synced to.
+   Make a folder on your computer where you want your game to be synced to.
 
-2. **Start the Server:**
-   Open this new folder inside your IDE of choice and run this in the terminal.
-
+2.  **Start the Server:**
+   Open that folder in VS Code (or your terminal or any other IDE with a terminal) and run:
    ```bash
    pesto Server
    ```
 
 3. **Bind & Sync:**
    * Open your game in Roblox Studio.
-   * Click **Export** in the Pesto toolbar.
+   * Click **Export** in the Pesto plugin toolbar.
    * *Your game is now bound to this folder!*
 
-4. **Live Sync:**
-   * **Export:** Sends scripts from Roblox Studio -> VS Code.
-   * **Import:** Sends scripts from VS Code -> Roblox Studio (updates open scripts automatically!).
+4.  **Workflow:**
+   *   **Export:** Pulls changes from Roblox Studio to VS Code.
+   *   **Import:** Pushes changes from VS Code to Roblox Studio.
+
+---
 
 ## 🗑️ Uninstall
 
-To uninstall Pesto, you can run the following command:
+To uninstall Pesto, simply run:
 
 ```bash
 pesto Uninstall
-```
-
-Alternatively, if you have the repository cloned, you can run:
-
-```bash
-./uninstall.sh
 ```
 
 ---
@@ -86,7 +69,7 @@ Pesto uses a `.pesto_id` file to bind a directory to a specific Roblox Universe 
 * Python 3.9+
 * Roblox Studio
 
-## Contribution
+## 🤝 Contribution & Credits
 
 Big thanks to the original creator of [Silicon](https://github.com/ervum/Silicon), this repository wouldnt have existed without his.
 I heavily modified his repository and created my own plugin since his became unavailable.
