@@ -58,6 +58,14 @@ To uninstall Pesto, simply run:
 pesto Uninstall
 ```
 
+## 🔄 Update
+
+To update Pesto to the latest version, run:
+
+```bash
+pesto Update
+```
+
 ---
 
 ## 🔒 Security

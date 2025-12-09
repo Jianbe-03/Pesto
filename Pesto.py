@@ -8,6 +8,7 @@ import sys;
 import io; 
 import os; 
 import subprocess;
+import tempfile;
 
 def ensure_dependency(module_name, package_name=None):
     if package_name is None:
@@ -81,6 +82,7 @@ DescriptionsForSubparsers: Dict[str, str] = {
     'Import'           : 'Import all data from Roblox Studio to Visual Studio Code',
 
     'Server'           : 'Run the server',
+    'Update'           : 'Update Pesto to the latest version',
     'Uninstall'        : 'Uninstall Pesto from your system'
 }; 
 ArgumentsForSubparsers: List[Tuple[str, Type, str]] = [
@@ -508,6 +510,38 @@ if (__name__ == '__main__'):
 
     if (Command == 'Server'):
         ServerType = (Arguments.Requests); 
+
+    elif (Command == 'Update'):
+        print("Updating Pesto...")
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                print(f"Cloning latest version...")
+                # Clone the repo
+                subprocess.check_call(["git", "clone", "https://github.com/Jianbe-03/Pesto.git", temp_dir], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                # Run install.sh
+                # Check for install.sh in Pesto subdirectory first (repo structure)
+                install_script = os.path.join(temp_dir, "Pesto", "install.sh")
+                if not os.path.exists(install_script):
+                    # Fallback to root if the repo structure is flat
+                    install_script = os.path.join(temp_dir, "install.sh")
+
+                if os.path.exists(install_script):
+                    os.chmod(install_script, 0o755)
+                    print("Running install script...")
+                    # We need to run it from the directory containing it so it finds sibling files
+                    subprocess.check_call([install_script], cwd=os.path.dirname(install_script))
+                    print("Pesto updated successfully!")
+                else:
+                    print("Error: install.sh not found in the cloned repository.")
+                    sys.exit(1)
+        except subprocess.CalledProcessError as e:
+            print(f"Update failed during git clone or install: {e}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"Update failed: {e}")
+            sys.exit(1)
+        sys.exit(0)
 
     elif (Command == 'Uninstall'):
         Confirm = input("Are you sure you want to uninstall Pesto? This will remove the ~/.pesto directory and the 'pesto' command. (y/n): ")
