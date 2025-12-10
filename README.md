@@ -6,12 +6,24 @@
 
 ### 1. Install the CLI Tool
 
+#### On MacOs
+
 Open your terminal and run:
 
 ```bash
 git clone https://github.com/Jianbe-03/Pesto
 cd Pesto
 ./install.sh
+```
+
+#### On Windows
+
+Open your terminal and run:
+
+```shell
+git clone https://github.com/Jianbe-03/Pesto
+cd Pesto
+./install.ps1
 ```
 
 This will install `pesto` as a global command on your system.
