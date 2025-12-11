@@ -36,7 +36,7 @@ from argparse    import ArgumentParser, _SubParsersAction, Namespace;
 from http.server import BaseHTTPRequestHandler, HTTPServer; 
 from threading   import Thread; 
 
-Version = '0.0.1';
+Version = '0.0.2';
 
 ScriptPath: str = os.getcwd(); 
 BasePath: str = ScriptPath; 
@@ -532,13 +532,29 @@ def GetInstanceDetails(InstanceFullPath: str, Hierarchy: Dict[str, Any]) -> (Dic
     Path = Hierarchy; 
 
     for i, AscendantName in enumerate(Ascendants):
-        if AscendantName not in Path:
-            Path[AscendantName] = { PN: { }}; 
-
-        Path = Path[AscendantName]; 
-
         AscendantPath = os.path.join(BasePath, *Ascendants[:(i + 1)]); 
         AscendantPropertiesFile = os.path.join(AscendantPath, PropertiesFileName); 
+        
+        # Get the PestoId from the properties file to use as the key
+        AscendantKey = AscendantName  # Default to folder name
+        if os.path.isfile(AscendantPropertiesFile):
+            try:
+                with open(AscendantPropertiesFile, 'r', encoding = 'utf-8') as File:
+                    if UseYAML:
+                        AscendantProps = yaml.safe_load(File); 
+                    else:
+                        AscendantProps = json.load(File); 
+                    
+                    if AscendantProps and 'PestoId' in AscendantProps:
+                        AscendantKey = AscendantProps['PestoId']
+            except:
+                pass
+        
+        if AscendantKey not in Path:
+            Path[AscendantKey] = { PN: { }}; 
+
+        Path = Path[AscendantKey]; 
+
         AscendantSourceFile = os.path.join(AscendantPath, SourceFileName); 
 
         if os.path.isfile(AscendantPropertiesFile):
