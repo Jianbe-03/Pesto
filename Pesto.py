@@ -36,7 +36,7 @@ from argparse    import ArgumentParser, _SubParsersAction, Namespace;
 from http.server import BaseHTTPRequestHandler, HTTPServer; 
 from threading   import Thread; 
 
-Version = '0.0.2';
+Version = '0.0.3';
 
 ScriptPath: str = os.getcwd(); 
 BasePath: str = ScriptPath; 
@@ -604,8 +604,9 @@ def Export(ScriptToSynchronize: Optional[str] = None) -> (Dict[str, Any]):
         Hierarchy = GetInstanceDetails(os.path.abspath(ScriptToSynchronize), Hierarchy); 
 
     else:
+        # Export ALL folders with __Properties__ files, not just ones with source files
         for File, _, FileChildren in os.walk(BasePath):
-            if (SourceFileName in FileChildren):
+            if (PropertiesFileName in FileChildren):
                 Hierarchy = GetInstanceDetails(File, Hierarchy); 
 
     return Hierarchy; 
