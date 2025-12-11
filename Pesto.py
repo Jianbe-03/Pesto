@@ -36,7 +36,7 @@ from argparse    import ArgumentParser, _SubParsersAction, Namespace;
 from http.server import BaseHTTPRequestHandler, HTTPServer; 
 from threading   import Thread; 
 
-
+Version = '0.0.1';
 
 ScriptPath: str = os.getcwd(); 
 BasePath: str = ScriptPath; 
@@ -346,74 +346,125 @@ def Import(Data: Dict[str, Any], Path: str = BasePath, IsLIVE: bool = False) -> 
             
     ProcessedItems = set()
 
+    # Group children by Name to handle duplicates
+    ChildrenByName = {} # Name -> [(PestoId, Data)]
+    
+    # Separate Properties/Source from Children
+    PropertiesData = None
+    SourceData = None
+    
     for Key, Value in Data.items():
-        NewPath = os.path.join(Path, Key); 
-
-        if (Key == SN):
-            ProcessedItems.add(SourceFileName)
-            try:
-                FilePath = os.path.join(Path, SourceFileName)
-                Write = True
-                if os.path.exists(FilePath):
-                    try:
-                        with open(FilePath, 'r', encoding = 'utf-8') as File:
-                            if File.read() == Value:
-                                Write = False
-                    except:
-                        pass
-
-                if Write:
-                    print(f"Updating Source: {FilePath}")
-                    with open(FilePath, 'w', encoding = 'utf-8') as File:
-                        File.write(Value); 
-
-            except Exception as e:
-                LogException(e, f'write Source File for {Path}!'); 
-
-        elif (Key == PN):
-            ProcessedItems.add(PropertiesFileName)
-            try:
-                FilePath = os.path.join(Path, PropertiesFileName)
-                Write = True
-                
-                if os.path.exists(FilePath):
-                    try:
-                        with open(FilePath, 'r', encoding='utf-8') as File:
-                            ExistingProps = {}
-                            if UseYAML:
-                                ExistingProps = yaml.safe_load(File)
-                            else:
-                                ExistingProps = json.load(File)
-                            
-                            if ExistingProps == Value:
-                                Write = False
-                    except:
-                        pass
-                
-                if Write:
-                    print(f"Updating Properties: {FilePath}")
-                    with open(FilePath, 'w', encoding = 'utf-8') as File:
-                        if UseYAML:
-                            yaml.dump(Value, File, default_flow_style = False, allow_unicode = True, sort_keys = False); 
-
-                        else:
-                            json.dump(Value, File, indent = 2); 
-
-            except Exception as e:
-                LogException(e, f'write Properties File for {Path}!'); 
-        
+        if Key == PN:
+            PropertiesData = Value
+        elif Key == SN:
+            SourceData = Value
         else:
-            # Child Instance
-            TargetName = Key
-            ChildData = Value
-            ChildProps = ChildData.get(PN, {})
-            ChildPestoId = ChildProps.get('PestoId')
+            # It's a child
+            ChildProps = Value.get(PN, {})
+            ChildName = ChildProps.get('Name', 'Unnamed')
+            if ChildName not in ChildrenByName:
+                ChildrenByName[ChildName] = []
+            ChildrenByName[ChildName].append((Key, Value))
+
+    # Process Properties
+    if PropertiesData:
+        ProcessedItems.add(PropertiesFileName)
+        try:
+            FilePath = os.path.join(Path, PropertiesFileName)
+            Write = True
             
+            if os.path.exists(FilePath):
+                try:
+                    with open(FilePath, 'r', encoding='utf-8') as File:
+                        ExistingProps = {}
+                        if UseYAML:
+                            ExistingProps = yaml.safe_load(File)
+                        else:
+                            ExistingProps = json.load(File)
+                        
+                        if ExistingProps == PropertiesData:
+                            Write = False
+                except:
+                    pass
+            
+            if Write:
+                print(f"Updating Properties: {FilePath}")
+                with open(FilePath, 'w', encoding = 'utf-8') as File:
+                    if UseYAML:
+                        yaml.dump(PropertiesData, File, default_flow_style = False, allow_unicode = True, sort_keys = False); 
+
+                    else:
+                        json.dump(PropertiesData, File, indent = 2); 
+
+        except Exception as e:
+            LogException(e, f'write Properties File for {Path}!'); 
+
+    # Process Source
+    if SourceData:
+        ProcessedItems.add(SourceFileName)
+        try:
+            FilePath = os.path.join(Path, SourceFileName)
+            Write = True
+            if os.path.exists(FilePath):
+                try:
+                    with open(FilePath, 'r', encoding = 'utf-8') as File:
+                        if File.read() == SourceData:
+                            Write = False
+                except:
+                    pass
+
+            if Write:
+                print(f"Updating Source: {FilePath}")
+                with open(FilePath, 'w', encoding = 'utf-8') as File:
+                    File.write(SourceData); 
+
+        except Exception as e:
+            LogException(e, f'write Source File for {Path}!'); 
+
+    # Process Children
+    DiskMap = {name: id for id, name in ExistingIds.items()}
+
+    for Name, Children in ChildrenByName.items():
+        # Potential filenames
+        PotentialFilenames = []
+        for i in range(len(Children)):
+            if i == 0:
+                PotentialFilenames.append(Name)
+            else:
+                PotentialFilenames.append(f"{Name} ({i+1})")
+        
+        FinalAssignments = {} # PestoId -> Filename
+        RemainingChildren = []
+        AvailableFilenames = set(PotentialFilenames)
+        
+        # Pass 1: Keep existing filenames if they are in the allowed set
+        for PestoId, ChildData in Children:
+            if PestoId in ExistingIds:
+                CurrentName = ExistingIds[PestoId]
+                if CurrentName in AvailableFilenames:
+                    FinalAssignments[PestoId] = CurrentName
+                    AvailableFilenames.remove(CurrentName)
+                else:
+                    RemainingChildren.append((PestoId, ChildData))
+            else:
+                RemainingChildren.append((PestoId, ChildData))
+                
+        # Pass 2: Assign remaining children to available filenames
+        # Sort remaining children by ID for determinism
+        RemainingChildren.sort(key=lambda x: x[0])
+        
+        SortedAvailable = sorted(list(AvailableFilenames), key=lambda x: (len(x), x))
+        
+        for i, (PestoId, ChildData) in enumerate(RemainingChildren):
+            FinalAssignments[PestoId] = SortedAvailable[i]
+            
+        # Now perform the imports
+        for PestoId, ChildData in Children:
+            TargetName = FinalAssignments[PestoId]
             FinalPath = os.path.join(Path, TargetName)
             
-            # Check for Rename
-            if ChildPestoId and ChildPestoId in ExistingIds:
-                OldName = ExistingIds[ChildPestoId]
+            if PestoId in ExistingIds:
+                OldName = ExistingIds[PestoId]
                 if OldName != TargetName:
                     OldPath = os.path.join(Path, OldName)
                     
@@ -425,24 +476,28 @@ def Import(Data: Dict[str, Any], Path: str = BasePath, IsLIVE: bool = False) -> 
                             os.rename(FinalPath, TempPath)
                             print(f"Collision: Moved {TargetName} to {TempName}")
                             
-                            # Update ExistingIds to reflect the move
-                            for id, name in ExistingIds.items():
-                                if name == TargetName:
-                                    ExistingIds[id] = TempName
-                                    break
+                            # Update ExistingIds/DiskMap
+                            OccupantId = DiskMap.get(TargetName)
+                            if OccupantId:
+                                ExistingIds[OccupantId] = TempName
+                                DiskMap[TempName] = OccupantId
+                                del DiskMap[TargetName]
+                                
                         except OSError as e:
                             print(f"Failed to move collision {TargetName}: {e}")
 
                     print(f"Renaming {OldName} to {TargetName}")
                     try:
                         os.rename(OldPath, FinalPath)
-                        ExistingIds[ChildPestoId] = TargetName # Update map
+                        ExistingIds[PestoId] = TargetName
+                        DiskMap[TargetName] = PestoId
+                        if OldName in DiskMap: del DiskMap[OldName]
                     except OSError as e:
                         print(f"Failed to rename {OldName} to {TargetName}: {e}")
             
             ProcessedItems.add(TargetName)
             os.makedirs(FinalPath, exist_ok = True); 
-            Import(Value, FinalPath, IsLIVE); 
+            Import(ChildData, FinalPath, IsLIVE); 
 
     # Handle Deletions
     if not IsLIVE:
@@ -700,3 +755,4 @@ if (__name__ == '__main__'):
         DataSharingMessage = '<->'; 
 
     print(f'Visual Studio Code {DataSharingMessage} Roblox Studio'); 
+    print(f'Running version: {Version}');
