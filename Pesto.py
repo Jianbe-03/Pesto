@@ -36,7 +36,7 @@ from argparse    import ArgumentParser, _SubParsersAction, Namespace;
 from http.server import BaseHTTPRequestHandler, HTTPServer; 
 from threading   import Thread; 
 
-Version = '0.1.0';
+Version = '0.1.1';
 
 ScriptPath: str = os.getcwd(); 
 BasePath: str = ScriptPath; 
@@ -98,13 +98,19 @@ ArgumentsForSubparsers: List[Tuple[str, Type, str]] = [
 OneTimeConnectionServerTypes: set[str] = { 'Export', 'Import' }; 
 
 NoDataAvailableResponse = { 'Status': 'No data available' }; 
-AliveResponse = { 'Status': 'Alive' }; 
+AliveResponse = { 'Status': 'Alive', 'Version': Version }; 
 
 Server: HTTPServer = None; 
 ServerThread: Thread = None; 
 
 Chunks: Dict[int, str] = { }; 
-
+ExportCache: Dict[int, str] = { }; # Cache for chunked exports 
+ExportStatus: Dict[str, Any] = { # Track export generation progress
+    'State': 'Idle', # Idle, Processing, Ready, Error
+    'Progress': 0,
+    'Result': None,
+    'Message': ''
+};
 
 
 def GetHandler(POSTEnabled: Optional[bool] = True, GETEnabled: Optional[bool] = True, StopAfterOneIteration: Optional[bool] = True):
@@ -216,7 +222,86 @@ def GetHandler(POSTEnabled: Optional[bool] = True, GETEnabled: Optional[bool] = 
                     Response = Settings; 
                 
                 elif (RequestType == DataHeader[TypeHeaderName].lower()):
-                    Response = Export(Script); 
+                    ChunkIndex = int(self.headers.get('Pesto-Chunk-Index', 0))
+                    ExportAction = self.headers.get('Pesto-Export-Action', 'Start' if ChunkIndex == 0 else 'Poll')
+                    
+                    if ChunkIndex == 0:
+                        # Handle Export Generation
+                        if ExportAction == 'Start':
+                            # Start new generation
+                            ExportStatus['State'] = 'Processing'
+                            ExportStatus['Progress'] = 0
+                            ExportStatus['Message'] = 'Starting export...'
+                            ExportStatus['Result'] = None
+                            
+                            def RunExportTask():
+                                global ExportStatus, ExportCache
+                                try:
+                                    FullData = Export(Script)
+                                    JsonData = json.dumps(FullData)
+                                    
+                                    # Chunk it
+                                    ChunkSize = 800000 # 800KB
+                                    TotalLen = len(JsonData)
+                                    TotalChunks = (TotalLen + ChunkSize - 1) // ChunkSize
+                                    
+                                    ExportCache.clear()
+                                    for i in range(1, TotalChunks + 1):
+                                        Start = (i - 1) * ChunkSize
+                                        End = min(i * ChunkSize, TotalLen)
+                                        ExportCache[i] = JsonData[Start:End]
+                                        
+                                    ExportStatus['Result'] = {
+                                        'Status': 'Ready',
+                                        'TotalChunks': TotalChunks,
+                                        'TotalSize': TotalLen
+                                    }
+                                    ExportStatus['State'] = 'Ready'
+                                    print(f"Prepared export: {TotalLen} bytes in {TotalChunks} chunks")
+                                except Exception as e:
+                                    ExportStatus['State'] = 'Error'
+                                    ExportStatus['Message'] = str(e)
+                                    LogException(e, "Export Task")
+
+                            threading.Thread(target=RunExportTask).start()
+                            
+                            Response = {
+                                'Status': 'Processing',
+                                'Progress': 0,
+                                'Message': 'Started export generation'
+                            }
+                            
+                        elif ExportAction == 'Poll':
+                            if ExportStatus['State'] == 'Processing':
+                                Response = {
+                                    'Status': 'Processing',
+                                    'Progress': ExportStatus['Progress'],
+                                    'Message': f"Processed {ExportStatus['Progress']} items..."
+                                }
+                            elif ExportStatus['State'] == 'Ready':
+                                Response = ExportStatus['Result']
+                            elif ExportStatus['State'] == 'Error':
+                                Response = {
+                                    'Status': 'Error',
+                                    'Message': ExportStatus['Message']
+                                }
+                            else:
+                                # Idle or unknown, treat as not ready or suggest start
+                                Response = {
+                                    'Status': 'Idle',
+                                    'Message': 'No export in progress. Send Action: Start.'
+                                }
+                    else:
+                        # Return chunk
+                        if ChunkIndex in ExportCache:
+                            Response = {
+                                'Chunk': ExportCache[ChunkIndex],
+                                'Index': ChunkIndex
+                            }
+                            print(f"Sending chunk {ChunkIndex}")
+                        else:
+                            self.send_error(404, 'Chunk not found')
+                            return 
 
                 elif (RequestType == StatusHeader[TypeHeaderName].lower()):
                     Response = AliveResponse; 
@@ -381,6 +466,10 @@ def Import(Data: Dict[str, Any], Path: str = BasePath, IsLIVE: bool = False) -> 
                             ExistingProps = yaml.safe_load(File)
                         else:
                             ExistingProps = json.load(File)
+                        
+                        # Preserve PestoId from existing file if present (User Request: Ignore PestoId changes after first export)
+                        if ExistingProps and 'PestoId' in ExistingProps:
+                            PropertiesData['PestoId'] = ExistingProps['PestoId']
                         
                         if ExistingProps == PropertiesData:
                             Write = False
@@ -598,6 +687,7 @@ def GetInstanceDetails(InstanceFullPath: str, Hierarchy: Dict[str, Any]) -> (Dic
     return Hierarchy; 
 
 def Export(ScriptToSynchronize: Optional[str] = None) -> (Dict[str, Any]):
+    global ExportStatus
     Hierarchy = {}; 
 
     if ScriptToSynchronize:
@@ -608,6 +698,8 @@ def Export(ScriptToSynchronize: Optional[str] = None) -> (Dict[str, Any]):
         for File, _, FileChildren in os.walk(BasePath):
             if (PropertiesFileName in FileChildren):
                 Hierarchy = GetInstanceDetails(File, Hierarchy); 
+                if ExportStatus['State'] == 'Processing':
+                    ExportStatus['Progress'] += 1
 
     return Hierarchy; 
 
