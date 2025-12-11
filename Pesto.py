@@ -9,6 +9,7 @@ import io;
 import os; 
 import subprocess;
 import tempfile;
+import uuid;
 
 def ensure_dependency(module_name, package_name=None):
     if package_name is None:
@@ -326,11 +327,30 @@ def Import(Data: Dict[str, Any], Path: str = BasePath, IsLIVE: bool = False) -> 
         if os.path.isdir(BasePath):
             for ImportedServiceFolder in os.listdir(BasePath):
                 DeletePath(os.path.join(BasePath, ImportedServiceFolder)); 
+
+    # 1. Scan for existing PestoIds in this directory
+    ExistingIds = {} # PestoId -> DirectoryName
+    if os.path.isdir(Path):
+        for Item in os.listdir(Path):
+            ItemPath = os.path.join(Path, Item)
+            if os.path.isdir(ItemPath):
+                PropsFile = os.path.join(ItemPath, PropertiesFileName)
+                if os.path.exists(PropsFile):
+                    try:
+                        with open(PropsFile, 'r', encoding='utf-8') as f:
+                            Props = yaml.safe_load(f) if UseYAML else json.load(f)
+                            if Props and 'PestoId' in Props:
+                                ExistingIds[Props['PestoId']] = Item
+                    except:
+                        pass
             
+    ProcessedItems = set()
+
     for Key, Value in Data.items():
         NewPath = os.path.join(Path, Key); 
 
         if (Key == SN):
+            ProcessedItems.add(SourceFileName)
             try:
                 FilePath = os.path.join(Path, SourceFileName)
                 Write = True
@@ -351,6 +371,7 @@ def Import(Data: Dict[str, Any], Path: str = BasePath, IsLIVE: bool = False) -> 
                 LogException(e, f'write Source File for {Path}!'); 
 
         elif (Key == PN):
+            ProcessedItems.add(PropertiesFileName)
             try:
                 FilePath = os.path.join(Path, PropertiesFileName)
                 Write = True
@@ -382,8 +403,55 @@ def Import(Data: Dict[str, Any], Path: str = BasePath, IsLIVE: bool = False) -> 
                 LogException(e, f'write Properties File for {Path}!'); 
         
         else:
-            os.makedirs(NewPath, exist_ok = True); 
-            Import(Value, NewPath); 
+            # Child Instance
+            TargetName = Key
+            ChildData = Value
+            ChildProps = ChildData.get(PN, {})
+            ChildPestoId = ChildProps.get('PestoId')
+            
+            FinalPath = os.path.join(Path, TargetName)
+            
+            # Check for Rename
+            if ChildPestoId and ChildPestoId in ExistingIds:
+                OldName = ExistingIds[ChildPestoId]
+                if OldName != TargetName:
+                    OldPath = os.path.join(Path, OldName)
+                    
+                    if os.path.exists(FinalPath):
+                        # Collision! Move occupant to temp
+                        TempName = f"{TargetName}_pesto_temp_{uuid.uuid4().hex}"
+                        TempPath = os.path.join(Path, TempName)
+                        try:
+                            os.rename(FinalPath, TempPath)
+                            print(f"Collision: Moved {TargetName} to {TempName}")
+                            
+                            # Update ExistingIds to reflect the move
+                            for id, name in ExistingIds.items():
+                                if name == TargetName:
+                                    ExistingIds[id] = TempName
+                                    break
+                        except OSError as e:
+                            print(f"Failed to move collision {TargetName}: {e}")
+
+                    print(f"Renaming {OldName} to {TargetName}")
+                    try:
+                        os.rename(OldPath, FinalPath)
+                        ExistingIds[ChildPestoId] = TargetName # Update map
+                    except OSError as e:
+                        print(f"Failed to rename {OldName} to {TargetName}: {e}")
+            
+            ProcessedItems.add(TargetName)
+            os.makedirs(FinalPath, exist_ok = True); 
+            Import(Value, FinalPath, IsLIVE); 
+
+    # Handle Deletions
+    if not IsLIVE:
+        if os.path.isdir(Path):
+            for Item in os.listdir(Path):
+                if Item not in ProcessedItems:
+                    ToDelete = os.path.join(Path, Item)
+                    print(f"Deleting {ToDelete}")
+                    DeletePath(ToDelete) 
 
 def GetInstanceDetails(InstanceFullPath: str, Hierarchy: Dict[str, Any]) -> (Dict[str, Any]):
     PN = Settings.get('PropertiesName'); 
