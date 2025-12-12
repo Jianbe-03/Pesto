@@ -10,6 +10,7 @@ import os;
 import subprocess;
 import tempfile;
 import uuid;
+import hashlib;
 
 def ensure_dependency(module_name, package_name=None):
     if package_name is None:
@@ -27,16 +28,19 @@ def ensure_dependency(module_name, package_name=None):
 
 ensure_dependency('requests');
 ensure_dependency('yaml', 'pyyaml');
+ensure_dependency('watchdog');
 
 import requests;
 import yaml; 
+from watchdog.observers import Observer;
+from watchdog.events import FileSystemEventHandler, FileSystemEvent;
 
 from typing      import Any, Optional, Union, Tuple, Dict, List, Type; 
 from argparse    import ArgumentParser, _SubParsersAction, Namespace; 
 from http.server import BaseHTTPRequestHandler, HTTPServer; 
 from threading   import Thread; 
 
-Version = '0.1.1';
+Version = '0.1.2';
 
 ScriptPath: str = os.getcwd(); 
 BasePath: str = ScriptPath; 
@@ -112,6 +116,207 @@ ExportStatus: Dict[str, Any] = { # Track export generation progress
     'Message': ''
 };
 
+LastSnapshot: Dict[str, str] = {} # PestoId -> Hash
+
+# File Watcher for Smart Import
+ChangedPaths: set = set()  # Set of changed file/folder paths
+DeletedPaths: set = set()  # Set of deleted file/folder paths
+FileWatcher: Observer = None
+FileWatcherLock = threading.Lock()
+WatcherStarted = False  # Flag to track if watcher has been started after initial export
+
+class PestoFileWatcher(FileSystemEventHandler):
+    def __init__(self, props_filename: str, source_filename: str):
+        self.props_filename = props_filename
+        self.source_filename = source_filename
+        
+    def _get_instance_path(self, path: str) -> str:
+        """Get the instance folder path from a file path"""
+        if os.path.isfile(path):
+            return os.path.dirname(path)
+        return path
+        
+    def _is_relevant_file(self, path: str) -> bool:
+        """Check if the file is a properties or source file"""
+        basename = os.path.basename(path)
+        return basename == self.props_filename or basename == self.source_filename
+        
+    def on_modified(self, event: FileSystemEvent):
+        if event.is_directory:
+            return
+        if self._is_relevant_file(event.src_path):
+            instance_path = self._get_instance_path(event.src_path)
+            with FileWatcherLock:
+                ChangedPaths.add(instance_path)
+                DeletedPaths.discard(instance_path)
+            print(f"[Watcher] Modified: {instance_path}")
+            
+    def on_created(self, event: FileSystemEvent):
+        if event.is_directory:
+            return
+        if self._is_relevant_file(event.src_path):
+            instance_path = self._get_instance_path(event.src_path)
+            with FileWatcherLock:
+                ChangedPaths.add(instance_path)
+                DeletedPaths.discard(instance_path)
+            print(f"[Watcher] Created: {instance_path}")
+            
+    def on_deleted(self, event: FileSystemEvent):
+        if event.is_directory:
+            # Directory deleted - mark for deletion
+            with FileWatcherLock:
+                DeletedPaths.add(event.src_path)
+                ChangedPaths.discard(event.src_path)
+            print(f"[Watcher] Deleted folder: {event.src_path}")
+        elif self._is_relevant_file(event.src_path):
+            instance_path = self._get_instance_path(event.src_path)
+            # Only mark as deleted if the entire folder is gone
+            if not os.path.exists(instance_path):
+                with FileWatcherLock:
+                    DeletedPaths.add(instance_path)
+                    ChangedPaths.discard(instance_path)
+                print(f"[Watcher] Deleted: {instance_path}")
+                
+    def on_moved(self, event: FileSystemEvent):
+        if event.is_directory:
+            with FileWatcherLock:
+                DeletedPaths.add(event.src_path)
+                ChangedPaths.add(event.dest_path)
+            print(f"[Watcher] Moved: {event.src_path} -> {event.dest_path}")
+        elif self._is_relevant_file(event.src_path) or self._is_relevant_file(event.dest_path):
+            src_instance = self._get_instance_path(event.src_path)
+            dest_instance = self._get_instance_path(event.dest_path)
+            with FileWatcherLock:
+                if not os.path.exists(src_instance):
+                    DeletedPaths.add(src_instance)
+                ChangedPaths.add(dest_instance)
+            print(f"[Watcher] Moved file: {src_instance} -> {dest_instance}")
+
+def StartFileWatcher(base_path: str, props_filename: str, source_filename: str):
+    global FileWatcher, WatcherStarted, ChangedPaths, DeletedPaths
+    if FileWatcher is not None or WatcherStarted:
+        return
+    
+    # Clear any cached changes from before watcher started
+    with FileWatcherLock:
+        ChangedPaths.clear()
+        DeletedPaths.clear()
+    
+    FileWatcher = Observer()
+    handler = PestoFileWatcher(props_filename, source_filename)
+    FileWatcher.schedule(handler, base_path, recursive=True)
+    FileWatcher.start()
+    WatcherStarted = True
+    print(f"[Watcher] Started watching: {base_path}")
+
+def StopFileWatcher():
+    global FileWatcher, WatcherStarted
+    if FileWatcher is not None:
+        FileWatcher.stop()
+        FileWatcher.join()
+        FileWatcher = None
+        WatcherStarted = False
+        print("[Watcher] Stopped")
+
+def PauseFileWatcher():
+    global FileWatcher
+    if FileWatcher is not None:
+        FileWatcher.unschedule_all()
+        print("[Watcher] Paused")
+
+def ResumeFileWatcher(base_path: str, props_filename: str, source_filename: str):
+    global FileWatcher
+    if FileWatcher is not None:
+        handler = PestoFileWatcher(props_filename, source_filename)
+        FileWatcher.schedule(handler, base_path, recursive=True)
+        print("[Watcher] Resumed")
+
+def GetChangedInstanceData() -> Tuple[Dict[str, Any], List[str]]:
+    """Get data only for changed instances and list of deleted PestoIds"""
+    global ChangedPaths, DeletedPaths
+    
+    with FileWatcherLock:
+        changed = list(ChangedPaths)
+        deleted = list(DeletedPaths)
+        ChangedPaths.clear()
+        DeletedPaths.clear()
+    
+    PN = Settings.get('PropertiesName')
+    SN = Settings.get('SourceName')
+    
+    Hierarchy = {}
+    DeletedIds = []
+    
+    # Process changed paths
+    for path in changed:
+        if os.path.exists(path):
+            Hierarchy = GetInstanceDetails(path, Hierarchy)
+    
+    # Process deleted paths - try to find PestoId from cached data
+    for path in deleted:
+        # Try to extract PestoId from the path if we have it cached
+        # For now, we'll rely on the folder name as a fallback
+        rel_path = os.path.relpath(path, BasePath)
+        DeletedIds.append(rel_path)  # We'll handle this on the client side
+    
+    return Hierarchy, DeletedIds
+
+def ComputeHash(data: Any) -> str:
+    return hashlib.md5(json.dumps(data, sort_keys=True).encode('utf-8')).hexdigest()
+
+def BuildSnapshot(node: Dict[str, Any], snapshot: Dict[str, str]):
+    PN = Settings.get('PropertiesName')
+    SN = Settings.get('SourceName')
+    
+    for key, value in node.items():
+        if key != PN and key != SN:
+            # It's a child
+            child_props = value.get(PN, {})
+            child_source = value.get(SN, "")
+            pesto_id = child_props.get('PestoId')
+            
+            if pesto_id:
+                # Hash properties (excluding PestoId itself? No, include it)
+                # Hash source
+                combined_hash = ComputeHash(child_props) + ComputeHash(child_source)
+                snapshot[pesto_id] = combined_hash
+            
+            BuildSnapshot(value, snapshot)
+
+def PruneHierarchy(node: Dict[str, Any], changed_ids: set) -> Tuple[Dict[str, Any], bool]:
+    PN = Settings.get('PropertiesName')
+    SN = Settings.get('SourceName')
+    
+    pruned_node = {}
+    has_relevant_content = False
+    
+    for key, value in node.items():
+        if key == PN or key == SN:
+            continue
+            
+        # It's a child
+        child_props = value.get(PN, {})
+        pesto_id = child_props.get('PestoId')
+        
+        is_changed = pesto_id and (pesto_id in changed_ids)
+        
+        pruned_child, child_has_relevant = PruneHierarchy(value, changed_ids)
+        
+        if is_changed or child_has_relevant:
+            has_relevant_content = True
+            pruned_node[key] = pruned_child
+            
+            if is_changed:
+                # Include full data
+                if PN in value: pruned_node[key][PN] = value[PN]
+                if SN in value: pruned_node[key][SN] = value[SN]
+            else:
+                # Include minimal data (PestoId) to maintain structure
+                if pesto_id:
+                    pruned_node[key][PN] = {'PestoId': pesto_id}
+                    
+    return pruned_node, has_relevant_content
+
 
 def GetHandler(POSTEnabled: Optional[bool] = True, GETEnabled: Optional[bool] = True, StopAfterOneIteration: Optional[bool] = True):
     class RequestHandler(BaseHTTPRequestHandler):
@@ -164,12 +369,22 @@ def GetHandler(POSTEnabled: Optional[bool] = True, GETEnabled: Optional[bool] = 
                     print(f'Successfully received data-chunk ({Index}/{Total})!'); 
 
                     if (len(Chunks) >= Total): 
+                        # Pause file watcher during import
+                        PauseFileWatcher()
+                        
                         if StopAfterOneIteration and Settings.get('CleanUpBeforeImportInVSC'):
                             DeletePath(BasePath); 
                             print(f'Successfully removed all descendants of {BasePath} before importing!'); 
 
                         Import(json.loads(''.join(Chunks[i] for i in sorted(Chunks))), BasePath, RequestFrequency); 
                         Chunks.clear(); 
+
+                        # Start file watcher after first import is complete
+                        if not WatcherStarted:
+                            StartFileWatcher(BasePath, PropertiesFileName, SourceFileName)
+                        else:
+                            # Resume watcher after import
+                            ResumeFileWatcher(BasePath, PropertiesFileName, SourceFileName)
 
                         print('Successfully reconstructed hierarchy!');  
                 
@@ -237,6 +452,9 @@ def GetHandler(POSTEnabled: Optional[bool] = True, GETEnabled: Optional[bool] = 
                             def RunExportTask():
                                 global ExportStatus, ExportCache
                                 try:
+                                    # Pause file watcher during export
+                                    PauseFileWatcher()
+                                    
                                     FullData = Export(Script)
                                     JsonData = json.dumps(FullData)
                                     
@@ -258,10 +476,15 @@ def GetHandler(POSTEnabled: Optional[bool] = True, GETEnabled: Optional[bool] = 
                                     }
                                     ExportStatus['State'] = 'Ready'
                                     print(f"Prepared export: {TotalLen} bytes in {TotalChunks} chunks")
+                                    
+                                    # Resume file watcher after export
+                                    ResumeFileWatcher(BasePath, PropertiesFileName, SourceFileName)
                                 except Exception as e:
                                     ExportStatus['State'] = 'Error'
                                     ExportStatus['Message'] = str(e)
                                     LogException(e, "Export Task")
+                                    # Resume watcher even on error
+                                    ResumeFileWatcher(BasePath, PropertiesFileName, SourceFileName)
 
                             threading.Thread(target=RunExportTask).start()
                             
@@ -269,6 +492,73 @@ def GetHandler(POSTEnabled: Optional[bool] = True, GETEnabled: Optional[bool] = 
                                 'Status': 'Processing',
                                 'Progress': 0,
                                 'Message': 'Started export generation'
+                            }
+
+                        elif ExportAction == 'SmartStart':
+                            # Smart export using file watcher cached changes
+                            ExportStatus['State'] = 'Processing'
+                            ExportStatus['Progress'] = 0
+                            ExportStatus['Message'] = 'Starting smart export...'
+                            ExportStatus['Result'] = None
+                            
+                            def RunSmartExportTask():
+                                global ExportStatus, ExportCache
+                                try:
+                                    # Pause file watcher during smart export
+                                    PauseFileWatcher()
+                                    
+                                    # Get only the changed data from the file watcher
+                                    ChangedData, DeletedPaths = GetChangedInstanceData()
+                                    
+                                    # Extract PestoIds from deleted paths
+                                    DeletedIds = []
+                                    for path in DeletedPaths:
+                                        # Try to read the PestoId from a cached properties file
+                                        # For now, just pass the path - client will handle it
+                                        DeletedIds.append(path)
+                                    
+                                    ResultData = {
+                                        'Changes': ChangedData,
+                                        'Deletions': DeletedIds,
+                                        'IsSmart': True
+                                    }
+                                    
+                                    JsonData = json.dumps(ResultData)
+                                    
+                                    # Chunk it
+                                    ChunkSize = 800000 # 800KB
+                                    TotalLen = len(JsonData)
+                                    TotalChunks = (TotalLen + ChunkSize - 1) // ChunkSize
+                                    
+                                    ExportCache.clear()
+                                    for i in range(1, TotalChunks + 1):
+                                        Start = (i - 1) * ChunkSize
+                                        End = min(i * ChunkSize, TotalLen)
+                                        ExportCache[i] = JsonData[Start:End]
+                                        
+                                    ExportStatus['Result'] = {
+                                        'Status': 'Ready',
+                                        'TotalChunks': TotalChunks,
+                                        'TotalSize': TotalLen
+                                    }
+                                    ExportStatus['State'] = 'Ready'
+                                    print(f"Prepared smart export: {TotalLen} bytes in {TotalChunks} chunks. Changes from watcher.")
+                                    
+                                    # Resume file watcher after smart export
+                                    ResumeFileWatcher(BasePath, PropertiesFileName, SourceFileName)
+                                except Exception as e:
+                                    ExportStatus['State'] = 'Error'
+                                    ExportStatus['Message'] = str(e)
+                                    LogException(e, "Smart Export Task")
+                                    # Resume watcher even on error
+                                    ResumeFileWatcher(BasePath, PropertiesFileName, SourceFileName)
+
+                            threading.Thread(target=RunSmartExportTask).start()
+                            
+                            Response = {
+                                'Status': 'Processing',
+                                'Progress': 0,
+                                'Message': 'Started smart export generation'
                             }
                             
                         elif ExportAction == 'Poll':
@@ -350,6 +640,9 @@ def DeletePath(Path: str) -> (None):
         os.remove(Path); 
 
 def StopHTTPServer() -> (None):
+    # Stop file watcher first
+    StopFileWatcher()
+    
     if Server:
         try: 
             Server.shutdown(); 
@@ -593,6 +886,9 @@ def Import(Data: Dict[str, Any], Path: str = BasePath, IsLIVE: bool = False) -> 
         if os.path.isdir(Path):
             for Item in os.listdir(Path):
                 if Item not in ProcessedItems:
+                    # Skip deleting .pesto_id file
+                    if Item == '.pesto_id':
+                        continue
                     ToDelete = os.path.join(Path, Item)
                     print(f"Deleting {ToDelete}")
                     DeletePath(ToDelete) 
@@ -833,6 +1129,8 @@ if (__name__ == '__main__'):
         ServerType = ServerType.lower(); 
 
         os.makedirs(BasePath, exist_ok = True); 
+        
+        # File watcher will be started after first export/import cycle
         
         Server = HTTPServer(
             (Host, Port),

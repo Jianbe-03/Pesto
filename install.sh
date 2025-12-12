@@ -23,7 +23,7 @@ python3 -m venv "$INSTALL_DIR/venv"
 
 # Install dependencies into the virtual environment
 echo "Installing dependencies..."
-"$INSTALL_DIR/venv/bin/pip" install requests pyyaml
+"$INSTALL_DIR/venv/bin/pip" install requests pyyaml watchdog
 
 # Create wrapper script using the venv python
 cat <<EOF > "$INSTALL_DIR/pesto"
