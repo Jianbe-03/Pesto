@@ -22,7 +22,7 @@ Write-Host "Creating virtual environment..."
 
 # Install dependencies into the virtual environment
 Write-Host "Installing dependencies..."
-& "$InstallDir\venv\Scripts\pip" install requests pyyaml
+& "$InstallDir\venv\Scripts\pip" install requests pyyaml watchdog
 
 # Create wrapper PowerShell script using the venv python
 $WrapperContent = @"
@@ -52,16 +52,6 @@ if ($CurrentPath -notlike "*$InstallDir*") {
 # Add to current session PATH
 if ($env:Path -notlike "*$InstallDir*") {
     $env:Path += ";$InstallDir"
-}
-
-# Add to PowerShell profile for new sessions
-if (!(Test-Path $PROFILE)) {
-    New-Item -ItemType File -Path $PROFILE -Force | Out-Null
-}
-$ProfileContent = Get-Content $PROFILE -Raw
-if ($ProfileContent -notlike "*$InstallDir*") {
-    Add-Content $PROFILE "`$env:Path += ';$InstallDir'"
-    Write-Host "Added $InstallDir to PowerShell profile."
 }
 
 Write-Host "Installation complete!"
