@@ -40,7 +40,7 @@ from argparse    import ArgumentParser, _SubParsersAction, Namespace;
 from http.server import BaseHTTPRequestHandler, HTTPServer; 
 from threading   import Thread; 
 
-Version = '0.1.3';
+Version = '0.1.4';
 
 ScriptPath: str = os.getcwd(); 
 BasePath: str = ScriptPath; 
