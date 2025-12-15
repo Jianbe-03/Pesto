@@ -40,7 +40,8 @@ from argparse    import ArgumentParser, _SubParsersAction, Namespace;
 from http.server import BaseHTTPRequestHandler, HTTPServer; 
 from threading   import Thread; 
 
-Version = '0.1.4';
+Version = '0.1.4a';
+CompatiblePluginVersions = {'0.1.4a','0.1.4', '0.1.3'};  # Add compatible plugin versions here
 
 ScriptPath: str = os.getcwd(); 
 BasePath: str = ScriptPath; 
@@ -65,6 +66,17 @@ def ValidateUniverse(UniverseId: str) -> (bool):
             f.write(UniverseId)
         print(f"Directory bound to Universe ID: {UniverseId}")
         return True 
+
+def ValidatePluginVersion(PluginVersion: str) -> (bool):
+    if not PluginVersion:
+        print("Warning: Request received without Plugin-Version header")
+        return True  # Allow for backward compatibility
+    
+    if PluginVersion not in CompatiblePluginVersions:
+        print(f"Version Error: Plugin version {PluginVersion} is not compatible with server version {Version}")
+        return False
+    
+    return True
 
 ServerTypesForSubparsers: Dict[str, str] = {
     'TwoWaySynchronize': 'POST GET',
@@ -576,6 +588,11 @@ def GetHandler(POSTEnabled: Optional[bool] = True, GETEnabled: Optional[bool] = 
                     self.send_error(403, 'Forbidden: Universe ID mismatch')
                     return
 
+                PluginVersion = self.headers.get('Plugin-Version', '')
+                if not ValidatePluginVersion(PluginVersion):
+                    self.send_error(403, f'Forbidden: Plugin version {PluginVersion} is not compatible with server version {Version}')
+                    return
+
                 StatusHeader = Settings.get('StatusHeader'); 
                 SettingsHeader = Settings.get('SettingsHeader'); 
                 DataHeader = Settings.get('DataHeader'); 
@@ -715,6 +732,11 @@ def GetHandler(POSTEnabled: Optional[bool] = True, GETEnabled: Optional[bool] = 
                 UniverseId = self.headers.get('Roblox-Universe-Id', '')
                 if not ValidateUniverse(UniverseId):
                     self.send_error(403, 'Forbidden: Universe ID mismatch')
+                    return
+
+                PluginVersion = self.headers.get('Plugin-Version', '')
+                if not ValidatePluginVersion(PluginVersion):
+                    self.send_error(403, f'Forbidden: Plugin version {PluginVersion} is not compatible with server version {Version}')
                     return
 
                 StatusHeader = Settings.get('StatusHeader'); 
