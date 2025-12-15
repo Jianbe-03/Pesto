@@ -40,7 +40,7 @@ from argparse    import ArgumentParser, _SubParsersAction, Namespace;
 from http.server import BaseHTTPRequestHandler, HTTPServer; 
 from threading   import Thread; 
 
-Version = '0.1.2';
+Version = '0.1.3';
 
 ScriptPath: str = os.getcwd(); 
 BasePath: str = ScriptPath; 
@@ -118,12 +118,51 @@ ExportStatus: Dict[str, Any] = { # Track export generation progress
 
 LastSnapshot: Dict[str, str] = {} # PestoId -> Hash
 
-# File Watcher for Smart Import
-ChangedPaths: set = set()  # Set of changed file/folder paths
-DeletedPaths: set = set()  # Set of deleted file/folder paths
+# Auto Sync cache (server -> Roblox polling)
+AutoCache: Dict[int, str] = {}
+AutoMeta: Optional[Dict[str, Any]] = None
+AutoCacheLock = threading.Lock()
+
+# Disk index to support patches (Roblox -> server -> disk)
+PestoIdToDiskPath: Dict[str, str] = {}
+DiskPathToPestoId: Dict[str, str] = {}
+IndexLock = threading.Lock()
+
+# File Watcher for Smart Import / Auto Sync
+ChangedPaths: set[str] = set()  # Instance folder paths changed on disk
+DeletedPestoIds: set[str] = set()  # PestoIds deleted on disk
 FileWatcher: Observer = None
 FileWatcherLock = threading.Lock()
-WatcherStarted = False  # Flag to track if watcher has been started after initial export
+WatcherStarted = False  # Starts after first Roblox->disk export/import completes
+
+def _load_properties_file(file_path: str) -> Dict[str, Any]:
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            if file_path.lower().endswith(('.yaml', '.yml')):
+                return yaml.safe_load(f) or {}
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+def RebuildDiskIndex():
+    """Walks BasePath and rebuilds the PestoId <-> disk folder index."""
+    global PestoIdToDiskPath, DiskPathToPestoId
+    with IndexLock:
+        PestoIdToDiskPath.clear()
+        DiskPathToPestoId.clear()
+
+    if not os.path.isdir(BasePath):
+        return
+
+    for root, dirs, files in os.walk(BasePath):
+        if PropertiesFileName in files:
+            props_path = os.path.join(root, PropertiesFileName)
+            props = _load_properties_file(props_path)
+            pid = props.get('PestoId')
+            if pid:
+                with IndexLock:
+                    PestoIdToDiskPath[pid] = root
+                    DiskPathToPestoId[root] = pid
 
 class PestoFileWatcher(FileSystemEventHandler):
     def __init__(self, props_filename: str, source_filename: str):
@@ -140,6 +179,20 @@ class PestoFileWatcher(FileSystemEventHandler):
         """Check if the file is a properties or source file"""
         basename = os.path.basename(path)
         return basename == self.props_filename or basename == self.source_filename
+
+    def _try_index_instance_dir(self, instance_dir: str):
+        props_path = os.path.join(instance_dir, self.props_filename)
+        if not os.path.exists(props_path):
+            return
+
+        props = _load_properties_file(props_path)
+        pid = props.get('PestoId')
+        if not pid:
+            return
+
+        with IndexLock:
+            PestoIdToDiskPath[pid] = instance_dir
+            DiskPathToPestoId[instance_dir] = pid
         
     def on_modified(self, event: FileSystemEvent):
         if event.is_directory:
@@ -148,7 +201,14 @@ class PestoFileWatcher(FileSystemEventHandler):
             instance_path = self._get_instance_path(event.src_path)
             with FileWatcherLock:
                 ChangedPaths.add(instance_path)
-                DeletedPaths.discard(instance_path)
+                # If this instance was previously considered deleted, undo that.
+                pid = None
+                with IndexLock:
+                    pid = DiskPathToPestoId.get(instance_path)
+                if pid:
+                    DeletedPestoIds.discard(pid)
+            if os.path.basename(event.src_path) == self.props_filename:
+                self._try_index_instance_dir(instance_path)
             print(f"[Watcher] Modified: {instance_path}")
             
     def on_created(self, event: FileSystemEvent):
@@ -158,49 +218,74 @@ class PestoFileWatcher(FileSystemEventHandler):
             instance_path = self._get_instance_path(event.src_path)
             with FileWatcherLock:
                 ChangedPaths.add(instance_path)
-                DeletedPaths.discard(instance_path)
+                pid = None
+                with IndexLock:
+                    pid = DiskPathToPestoId.get(instance_path)
+                if pid:
+                    DeletedPestoIds.discard(pid)
+            if os.path.basename(event.src_path) == self.props_filename:
+                self._try_index_instance_dir(instance_path)
             print(f"[Watcher] Created: {instance_path}")
             
     def on_deleted(self, event: FileSystemEvent):
         if event.is_directory:
-            # Directory deleted - mark for deletion
+            instance_dir = event.src_path
             with FileWatcherLock:
-                DeletedPaths.add(event.src_path)
-                ChangedPaths.discard(event.src_path)
+                ChangedPaths.discard(instance_dir)
+                with IndexLock:
+                    pid = DiskPathToPestoId.get(instance_dir)
+                    if pid:
+                        DeletedPestoIds.add(pid)
+                        PestoIdToDiskPath.pop(pid, None)
+                        DiskPathToPestoId.pop(instance_dir, None)
             print(f"[Watcher] Deleted folder: {event.src_path}")
         elif self._is_relevant_file(event.src_path):
             instance_path = self._get_instance_path(event.src_path)
             # Only mark as deleted if the entire folder is gone
             if not os.path.exists(instance_path):
                 with FileWatcherLock:
-                    DeletedPaths.add(instance_path)
                     ChangedPaths.discard(instance_path)
+                    with IndexLock:
+                        pid = DiskPathToPestoId.get(instance_path)
+                        if pid:
+                            DeletedPestoIds.add(pid)
+                            PestoIdToDiskPath.pop(pid, None)
+                            DiskPathToPestoId.pop(instance_path, None)
                 print(f"[Watcher] Deleted: {instance_path}")
                 
     def on_moved(self, event: FileSystemEvent):
         if event.is_directory:
             with FileWatcherLock:
-                DeletedPaths.add(event.src_path)
                 ChangedPaths.add(event.dest_path)
+
+            with IndexLock:
+                pid = DiskPathToPestoId.pop(event.src_path, None)
+                if pid:
+                    PestoIdToDiskPath[pid] = event.dest_path
+                    DiskPathToPestoId[event.dest_path] = pid
             print(f"[Watcher] Moved: {event.src_path} -> {event.dest_path}")
         elif self._is_relevant_file(event.src_path) or self._is_relevant_file(event.dest_path):
             src_instance = self._get_instance_path(event.src_path)
             dest_instance = self._get_instance_path(event.dest_path)
             with FileWatcherLock:
-                if not os.path.exists(src_instance):
-                    DeletedPaths.add(src_instance)
                 ChangedPaths.add(dest_instance)
+
+            if os.path.basename(event.dest_path) == self.props_filename:
+                self._try_index_instance_dir(dest_instance)
             print(f"[Watcher] Moved file: {src_instance} -> {dest_instance}")
 
 def StartFileWatcher(base_path: str, props_filename: str, source_filename: str):
-    global FileWatcher, WatcherStarted, ChangedPaths, DeletedPaths
+    global FileWatcher, WatcherStarted, ChangedPaths, DeletedPestoIds
     if FileWatcher is not None or WatcherStarted:
         return
     
     # Clear any cached changes from before watcher started
     with FileWatcherLock:
         ChangedPaths.clear()
-        DeletedPaths.clear()
+        DeletedPestoIds.clear()
+
+    # Build the id->path index once when watcher starts
+    RebuildDiskIndex()
     
     FileWatcher = Observer()
     handler = PestoFileWatcher(props_filename, source_filename)
@@ -233,13 +318,13 @@ def ResumeFileWatcher(base_path: str, props_filename: str, source_filename: str)
 
 def GetChangedInstanceData() -> Tuple[Dict[str, Any], List[str]]:
     """Get data only for changed instances and list of deleted PestoIds"""
-    global ChangedPaths, DeletedPaths
+    global ChangedPaths, DeletedPestoIds
     
     with FileWatcherLock:
         changed = list(ChangedPaths)
-        deleted = list(DeletedPaths)
+        deleted_ids = list(DeletedPestoIds)
         ChangedPaths.clear()
-        DeletedPaths.clear()
+        DeletedPestoIds.clear()
     
     PN = Settings.get('PropertiesName')
     SN = Settings.get('SourceName')
@@ -253,13 +338,168 @@ def GetChangedInstanceData() -> Tuple[Dict[str, Any], List[str]]:
             Hierarchy = GetInstanceDetails(path, Hierarchy)
     
     # Process deleted paths - try to find PestoId from cached data
-    for path in deleted:
-        # Try to extract PestoId from the path if we have it cached
-        # For now, we'll rely on the folder name as a fallback
-        rel_path = os.path.relpath(path, BasePath)
-        DeletedIds.append(rel_path)  # We'll handle this on the client side
+    DeletedIds.extend(deleted_ids)
     
     return Hierarchy, DeletedIds
+
+InboundApplyLock = threading.Lock()
+
+def _write_properties_file(file_path: str, props: Dict[str, Any]):
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            if file_path.lower().endswith(('.yaml', '.yml')):
+                yaml.dump(props, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            else:
+                json.dump(props, f, indent=2)
+    except Exception as e:
+        LogException(e, f'write properties file {file_path}!')
+
+def ApplyDiskPatch(patch: Dict[str, Any]) -> bool:
+    """Apply an inbound patch coming from Roblox -> disk. Pauses watcher during writes."""
+    pid = patch.get('PestoId')
+    if not pid:
+        return False
+
+    with InboundApplyLock:
+        with IndexLock:
+            instance_dir = PestoIdToDiskPath.get(pid)
+
+        if not instance_dir or not os.path.isdir(instance_dir):
+            return False
+
+        PauseFileWatcher()
+        try:
+            if 'Source' in patch and patch['Source'] is not None:
+                src_path = os.path.join(instance_dir, SourceFileName)
+                with open(src_path, 'w', encoding='utf-8') as f:
+                    f.write(patch['Source'])
+
+            if 'Properties' in patch and isinstance(patch['Properties'], dict):
+                props_path = os.path.join(instance_dir, PropertiesFileName)
+                existing = _load_properties_file(props_path) if os.path.exists(props_path) else {}
+                existing.update(patch['Properties'])
+                existing['PestoId'] = pid
+                _write_properties_file(props_path, existing)
+
+            # Refresh index entry
+            with IndexLock:
+                PestoIdToDiskPath[pid] = instance_dir
+                DiskPathToPestoId[instance_dir] = pid
+        finally:
+            # Small delay before resuming to ensure OS flush completes
+            import time
+            time.sleep(0.05)
+            ResumeFileWatcher(BasePath, PropertiesFileName, SourceFileName)
+
+    return True
+
+def _index_subtree(start_dir: str):
+    if not os.path.isdir(start_dir):
+        return
+    for root, _dirs, files in os.walk(start_dir):
+        if PropertiesFileName in files:
+            props_path = os.path.join(root, PropertiesFileName)
+            props = _load_properties_file(props_path)
+            pid = props.get('PestoId')
+            if pid:
+                with IndexLock:
+                    PestoIdToDiskPath[pid] = root
+                    DiskPathToPestoId[root] = pid
+
+def ApplyDiskUpsert(parent_pesto_id: str, node: Dict[str, Any]) -> bool:
+    """Create/update a subtree on disk under the given parent PestoId."""
+    if not parent_pesto_id or not isinstance(node, dict):
+        return False
+
+    PN = Settings.get('PropertiesName')
+    props = node.get(PN) or {}
+    child_pid = props.get('PestoId')
+    child_name = props.get('Name') or 'Unnamed'
+    if not child_pid:
+        return False
+
+    with IndexLock:
+        parent_dir = PestoIdToDiskPath.get(parent_pesto_id)
+
+    if not parent_dir or not os.path.isdir(parent_dir):
+        RebuildDiskIndex()
+        with IndexLock:
+            parent_dir = PestoIdToDiskPath.get(parent_pesto_id)
+        if not parent_dir or not os.path.isdir(parent_dir):
+            return False
+
+    # Reuse existing path if known
+    with IndexLock:
+        existing_child_dir = PestoIdToDiskPath.get(child_pid)
+    if existing_child_dir and os.path.isdir(existing_child_dir):
+        child_dir = existing_child_dir
+    else:
+        # Pick a free folder name under parent
+        candidate = os.path.join(parent_dir, child_name)
+        child_dir = candidate
+        if os.path.exists(candidate):
+            # If collision, try numbered suffixes
+            for i in range(2, 101):
+                alt = f"{candidate} ({i})"
+                if not os.path.exists(alt):
+                    child_dir = alt
+                    break
+
+    with InboundApplyLock:
+        PauseFileWatcher()
+        try:
+            os.makedirs(child_dir, exist_ok=True)
+            Import(node, child_dir, True)
+            _index_subtree(child_dir)
+        finally:
+            ResumeFileWatcher(BasePath, PropertiesFileName, SourceFileName)
+
+    return True
+
+def ApplyDiskDelete(pesto_id: str) -> bool:
+    if not pesto_id:
+        return False
+
+    with IndexLock:
+        disk_path = PestoIdToDiskPath.get(pesto_id)
+
+    if not disk_path or not os.path.exists(disk_path):
+        return False
+
+    with InboundApplyLock:
+        PauseFileWatcher()
+        try:
+            DeletePath(disk_path)
+            with IndexLock:
+                PestoIdToDiskPath.pop(pesto_id, None)
+                DiskPathToPestoId.pop(disk_path, None)
+        finally:
+            ResumeFileWatcher(BasePath, PropertiesFileName, SourceFileName)
+
+    return True
+
+def PrepareAutoCachePayload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Chunk payload into AutoCache and return meta response."""
+    global AutoMeta
+    json_data = json.dumps(payload)
+
+    chunk_size = 800000
+    total_len = len(json_data)
+    total_chunks = (total_len + chunk_size - 1) // chunk_size
+
+    with AutoCacheLock:
+        AutoCache.clear()
+        for i in range(1, total_chunks + 1):
+            start = (i - 1) * chunk_size
+            end = min(i * chunk_size, total_len)
+            AutoCache[i] = json_data[start:end]
+        AutoMeta = {
+            'Status': 'Ready',
+            'TotalChunks': total_chunks,
+            'TotalSize': total_len,
+            'IsAuto': True
+        }
+        return AutoMeta
 
 def ComputeHash(data: Any) -> str:
     return hashlib.md5(json.dumps(data, sort_keys=True).encode('utf-8')).hexdigest()
@@ -360,6 +600,59 @@ def GetHandler(POSTEnabled: Optional[bool] = True, GETEnabled: Optional[bool] = 
                     Settings = Data; 
 
                 elif (RequestType == DataHeader[TypeHeaderName].lower()):
+                    DataChannel = (self.headers.get('Pesto-Data-Channel', 'Export') or 'Export').lower()
+                    AutoAction = (self.headers.get('Pesto-Auto-Action', '') or '').lower()
+
+                    # AutoSync: Roblox -> disk patch
+                    if DataChannel == 'auto' and AutoAction == 'patch':
+                        if not isinstance(Data, dict):
+                            self.send_error(400, 'Invalid patch body')
+                            return
+
+                        ok = ApplyDiskPatch(Data)
+                        if not ok:
+                            self.send_error(404, 'Patch target not found')
+                            return
+
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({'Status': 'OK'}).encode('utf-8'))
+                        return
+
+                    # AutoSync: Roblox -> disk upsert (create/update instance subtree)
+                    if DataChannel == 'auto' and AutoAction == 'upsert':
+                        if not isinstance(Data, dict):
+                            self.send_error(400, 'Invalid upsert body')
+                            return
+                        parent_pid = Data.get('ParentPestoId')
+                        node = Data.get('Node')
+                        ok = ApplyDiskUpsert(parent_pid, node)
+                        if not ok:
+                            self.send_error(404, 'Upsert target not found')
+                            return
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({'Status': 'OK'}).encode('utf-8'))
+                        return
+
+                    # AutoSync: Roblox -> disk delete
+                    if DataChannel == 'auto' and AutoAction == 'delete':
+                        if not isinstance(Data, dict):
+                            self.send_error(400, 'Invalid delete body')
+                            return
+                        pid = Data.get('PestoId')
+                        ok = ApplyDiskDelete(pid)
+                        if not ok:
+                            self.send_error(404, 'Delete target not found')
+                            return
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(json.dumps({'Status': 'OK'}).encode('utf-8'))
+                        return
+
                     Index = Data['Index']; 
                     Total = Data['Total']; 
                     Chunk = Data['Chunk']; 
@@ -437,9 +730,54 @@ def GetHandler(POSTEnabled: Optional[bool] = True, GETEnabled: Optional[bool] = 
                     Response = Settings; 
                 
                 elif (RequestType == DataHeader[TypeHeaderName].lower()):
+                    DataChannel = (self.headers.get('Pesto-Data-Channel', 'Export') or 'Export').lower()
                     ChunkIndex = int(self.headers.get('Pesto-Chunk-Index', 0))
                     ExportAction = self.headers.get('Pesto-Export-Action', 'Start' if ChunkIndex == 0 else 'Poll')
-                    
+
+                    # AutoSync: Roblox polls for diffs
+                    if DataChannel == 'auto':
+                        AutoAction = (self.headers.get('Pesto-Auto-Action', 'AutoPoll') or 'AutoPoll')
+
+                        if ChunkIndex == 0:
+                            # Only start after baseline exists
+                            if not WatcherStarted:
+                                Response = PrepareAutoCachePayload({
+                                    'IsAuto': True,
+                                    'IsSmart': True,
+                                    'Changes': {},
+                                    'Deletions': [],
+                                    'Message': 'AutoSync not ready: baseline not established yet.'
+                                })
+                            else:
+                                changes, deletions = GetChangedInstanceData()
+                                Response = PrepareAutoCachePayload({
+                                    'IsAuto': True,
+                                    'IsSmart': True,
+                                    'Changes': changes,
+                                    'Deletions': deletions
+                                })
+                        else:
+                            with AutoCacheLock:
+                                if ChunkIndex in AutoCache:
+                                    Response = {
+                                        'Chunk': AutoCache[ChunkIndex],
+                                        'Index': ChunkIndex,
+                                        'IsAuto': True
+                                    }
+                                else:
+                                    self.send_error(404, 'Auto chunk not found')
+                                    return
+                        # Auto channel handled fully (respond immediately and return)
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        if Response is None:
+                            Response = NoDataAvailableResponse
+                        self.wfile.write(json.dumps(Response).encode('utf-8'))
+                        if StopAfterOneIteration:
+                            StopHTTPServer()
+                        return
+
                     if ChunkIndex == 0:
                         # Handle Export Generation
                         if ExportAction == 'Start':
