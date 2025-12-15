@@ -40,8 +40,8 @@ from argparse    import ArgumentParser, _SubParsersAction, Namespace;
 from http.server import BaseHTTPRequestHandler, HTTPServer; 
 from threading   import Thread; 
 
-Version = '0.1.4a';
-CompatiblePluginVersions = {'0.1.4a','0.1.4', '0.1.3'};  # Add compatible plugin versions here
+Version = '0.1.5';
+CompatiblePluginVersions = {'0.1.5'};  # Add compatible plugin versions here
 
 ScriptPath: str = os.getcwd(); 
 BasePath: str = ScriptPath; 
@@ -697,6 +697,46 @@ def GetHandler(POSTEnabled: Optional[bool] = True, GETEnabled: Optional[bool] = 
                             ResumeFileWatcher(BasePath, PropertiesFileName, SourceFileName)
 
                         print('Successfully reconstructed hierarchy!');  
+                
+                elif (RequestType == "smartexport"):
+                    # Handle smart export from Roblox
+                    if not isinstance(Data, dict) or not Data.get('IsSmart'):
+                        self.send_error(400, 'Invalid smart export data')
+                        return
+                    
+                    changes = Data.get('Changes', {})
+                    deletions = Data.get('Deletions', [])
+                    
+                    print(f'Received smart export with {len(changes)} changes and {len(deletions)} deletions')
+                    
+                    # Pause file watcher during smart import
+                    PauseFileWatcher()
+                    
+                    # Apply changes
+                    for pestoId, instanceData in changes.items():
+                        try:
+                            ApplyDiskUpsert(None, instanceData)  # None parent means root level
+                            print(f'Applied change for {pestoId}')
+                        except Exception as e:
+                            print(f'Failed to apply change for {pestoId}: {e}')
+                    
+                    # Apply deletions
+                    for pestoId in deletions:
+                        try:
+                            ApplyDiskDelete(pestoId)
+                            print(f'Applied deletion for {pestoId}')
+                        except Exception as e:
+                            print(f'Failed to apply deletion for {pestoId}: {e}')
+                    
+                    # Resume file watcher
+                    if WatcherStarted:
+                        ResumeFileWatcher(BasePath, PropertiesFileName, SourceFileName)
+                    
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({'Status': 'Smart export applied'}).encode('utf-8'))
+                    print('Smart export completed!')
                 
                 elif (RequestType == StatusHeader[TypeHeaderName].lower()):
                     pass; 
