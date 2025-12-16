@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
@@ -14,21 +16,78 @@ mkdir -p "$INSTALL_DIR"
 
 # Copy files from the script's directory
 echo "Copying files from $SCRIPT_DIR..."
-cp "$SCRIPT_DIR/Pesto.py" "$INSTALL_DIR/"
+OS_NAME="$(uname -s)"
+EXE_SRC=""
+if [ "$OS_NAME" = "Darwin" ]; then
+    EXE_SRC="$SCRIPT_DIR/dist/Pesto-mac"
+else
+    EXE_SRC="$SCRIPT_DIR/dist/Pesto-linux"
+fi
+
+# Backward-compatible fallback
+if [ ! -f "$EXE_SRC" ]; then
+    if [ -f "$SCRIPT_DIR/dist/Pesto" ]; then
+        EXE_SRC="$SCRIPT_DIR/dist/Pesto"
+    fi
+fi
+
+if [ ! -f "$EXE_SRC" ]; then
+    echo "Error: Pesto executable not found in $SCRIPT_DIR/dist"
+    echo "Expected one of: Pesto-mac, Pesto-linux (or legacy Pesto)"
+    exit 1
+fi
+
+# Remove any previous install artifacts first (prevents recursion issues)
+rm -f "$INSTALL_DIR/Pesto-mac" "$INSTALL_DIR/pesto"
+
+# Copy to a temp path first, then atomically move into place
+TMP_EXE="$INSTALL_DIR/Pesto.tmp"
+rm -f "$TMP_EXE"
+cp "$EXE_SRC" "$TMP_EXE"
+chmod +x "$TMP_EXE"
+
+# Remove macOS quarantine if present
+if command -v xattr >/dev/null 2>&1; then
+    xattr -d com.apple.quarantine "$TMP_EXE" 2>/dev/null || true
+fi
+
+# Validate size/type so we don't accidentally install a wrapper script
+EXE_SIZE=$(stat -f%z "$TMP_EXE" 2>/dev/null || stat -c%s "$TMP_EXE" 2>/dev/null || echo 0)
+if [ "$EXE_SIZE" -lt 1000000 ]; then
+    echo "Error: Installed executable is too small ($EXE_SIZE bytes)."
+    echo "Make sure you put the real PyInstaller binary in $SCRIPT_DIR/dist (expected ~8-12MB)."
+    rm -f "$TMP_EXE"
+    exit 1
+fi
+
+if command -v file >/dev/null 2>&1; then
+    FILE_INFO="$(file -b "$TMP_EXE" || true)"
+    case "$OS_NAME" in
+        Darwin)
+            echo "$FILE_INFO" | grep -q "Mach-O" || {
+                echo "Error: Expected a Mach-O binary but got: $FILE_INFO"
+                rm -f "$TMP_EXE"
+                exit 1
+            }
+            ;;
+        Linux)
+            echo "$FILE_INFO" | grep -q "ELF" || {
+                echo "Error: Expected an ELF binary but got: $FILE_INFO"
+                rm -f "$TMP_EXE"
+                exit 1
+            }
+            ;;
+    esac
+fi
+
+mv -f "$TMP_EXE" "$INSTALL_DIR/Pesto-mac"
+
 cp "$SCRIPT_DIR/Settings.yaml" "$INSTALL_DIR/"
 
-# Create a virtual environment to avoid PEP 668 errors
-echo "Creating virtual environment..."
-python3 -m venv "$INSTALL_DIR/venv"
-
-# Install dependencies into the virtual environment
-echo "Installing dependencies..."
-"$INSTALL_DIR/venv/bin/pip" install requests pyyaml watchdog
-
-# Create wrapper script using the venv python
+# Create wrapper script for the executable
 cat <<EOF > "$INSTALL_DIR/pesto"
 #!/bin/bash
-"$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/Pesto.py" "\$@"
+exec "$INSTALL_DIR/Pesto-mac" "\$@"
 EOF
 
 # Make wrapper executable
