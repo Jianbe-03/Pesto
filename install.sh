@@ -84,6 +84,33 @@ mv -f "$TMP_EXE" "$INSTALL_DIR/Pesto-mac"
 
 cp "$SCRIPT_DIR/Settings.yaml" "$INSTALL_DIR/"
 
+# Copy native helper binary (for high-performance operations)
+echo "Installing native helper..."
+if [ "$OS_NAME" = "Darwin" ]; then
+    # Detect architecture for macOS
+    ARCH="$(uname -m)"
+    if [ "$ARCH" = "arm64" ]; then
+        HELPER_SRC="$SCRIPT_DIR/pesto-helper-darwin-arm64"
+    else
+        HELPER_SRC="$SCRIPT_DIR/pesto-helper-darwin-amd64"
+    fi
+else
+    HELPER_SRC="$SCRIPT_DIR/pesto-helper-linux-amd64"
+fi
+
+if [ -f "$HELPER_SRC" ]; then
+    cp "$HELPER_SRC" "$INSTALL_DIR/"
+    chmod +x "$INSTALL_DIR/$(basename "$HELPER_SRC")"
+    # Remove macOS quarantine if present
+    if command -v xattr >/dev/null 2>&1; then
+        xattr -d com.apple.quarantine "$INSTALL_DIR/$(basename "$HELPER_SRC")" 2>/dev/null || true
+    fi
+    echo "Installed native helper: $(basename "$HELPER_SRC")"
+else
+    echo "Warning: Native helper not found at $HELPER_SRC"
+    echo "Pesto will use Python fallback (slower for large projects)"
+fi
+
 # Create wrapper script for the executable
 cat <<EOF > "$INSTALL_DIR/pesto"
 #!/bin/bash

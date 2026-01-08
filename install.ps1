@@ -43,6 +43,17 @@ if ($Header.Count -lt 2 -or $Header[0] -ne 0x4D -or $Header[1] -ne 0x5A) {
 
 Copy-Item "$ScriptDir\Settings.yaml" "$InstallDir\"
 
+# Copy native helper binary (for high-performance operations)
+Write-Host "Installing native helper..."
+$HelperSource = "$ScriptDir\pesto-helper-windows-amd64.exe"
+if (Test-Path $HelperSource) {
+    Copy-Item $HelperSource "$InstallDir\" -Force
+    Write-Host "Installed native helper: pesto-helper-windows-amd64.exe"
+} else {
+    Write-Host "Warning: Native helper not found at $HelperSource"
+    Write-Host "Pesto will use Python fallback (slower for large projects)"
+}
+
 # Create wrapper PowerShell script for the executable
 $WrapperContent = @"
 & "$InstallDir\Pesto-win.exe" `$args

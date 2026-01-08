@@ -33,6 +33,11 @@ ExportFromRSPropertyBlacklist :          # By default, `Parent` and `Disabled` p
   - 'Parent'
   - 'Disabled'                           # There's already `Enabled`. 
 
+# Native Helper Settings (for high-performance Import/Export)
+UseNativeHelpers              : true     # If true, uses compiled Go helpers for bulk import/export operations (20-30x faster).
+NativeHelperWorkers           : 8        # Number of parallel workers for native helper operations. Increase for large projects.
+NativeHelperTimeout           : 300      # Timeout in seconds for native helper operations.
+
 StatusHeader                  :
   Request-Type: GETStatus
 
