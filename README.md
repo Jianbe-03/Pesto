@@ -104,6 +104,16 @@ This extension provides:
 
 ---
 
+## 🧠 Luau LSP Sourcemap (Autocomplete for `game.*`)
+
+Pesto writes a `sourcemap.json` file to your project root after a full import completes. This file is used by the Luau Language Server (`luau-lsp`) to understand your DataModel instance tree.
+
+Recommended:
+* Add `sourcemap.json` to your `.gitignore`.
+* Install/configure the VS Code extension: https://marketplace.visualstudio.com/items?itemName=JohnnyMorganz.luau-lsp
+
+---
+
 ## 🗑️ Uninstall
 
 To uninstall Pesto, simply run:
@@ -137,6 +147,6 @@ Pesto uses a `.pesto_id` file to bind a directory to a specific Roblox Universe 
 
 ## 🤝 Contribution & Credits
 
-Big thanks to the original creator of [Silicon](https://github.com/ervum/Silicon) for the inspiration. Pesto is a heavily modified and evolved version designed for modern workflows.
+Big thanks to you guys! Your support has helped me keep updating Pesto! Without you Pesto wouldn't exist!
 
 **Support the project:** Buying the plugin on Roblox Studio directly supports the development of this tool and my future games. Thank you! ❤️
