@@ -1,0 +1,22 @@
+# Treat all binary files in dist/ as binary (no line ending conversion)
+dist/**/*.exe binary
+dist/**/*.dll binary
+dist/**/*.pyd binary
+dist/**/*.so binary
+dist/**/*.dylib binary
+dist/**/*.zip binary
+dist/**/base_library.zip binary
+
+# Treat all files in _internal as binary to be safe
+dist/**/_internal/** binary
+
+# Shell scripts should have LF endings
+*.sh text eol=lf
+
+# Windows scripts should have CRLF endings
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# Ignore macOS metadata
+.DS_Store export-ignore
+__MACOSX/** export-ignore
