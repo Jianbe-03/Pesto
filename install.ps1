@@ -21,7 +21,7 @@ if (Test-Path "$InstallDir\pesto.bat") { Remove-Item -Force "$InstallDir\pesto.b
 
 # Copy files from the script's directory
 Write-Host "Copying files from $ScriptDir..."
-$ExeSource = "$(Split-Path $ScriptDir -Parent)\dist\Pesto-win"
+$ExeSource = "$ScriptDir\dist\Pesto-win"
 
 if (Test-Path $ExeSource -PathType Container) {
     # Onedir build: copy the folder
