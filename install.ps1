@@ -13,41 +13,70 @@ if (!(Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Path $InstallDir | Out-Null
 }
 
+# Remove any previous install artifacts first
+if (Test-Path "$InstallDir\Pesto-win") { Remove-Item -Recurse -Force "$InstallDir\Pesto-win" -ErrorAction SilentlyContinue }
+if (Test-Path "$InstallDir\Pesto-win.exe") { Remove-Item -Force "$InstallDir\Pesto-win.exe" -ErrorAction SilentlyContinue }
+if (Test-Path "$InstallDir\pesto.ps1") { Remove-Item -Force "$InstallDir\pesto.ps1" -ErrorAction SilentlyContinue }
+if (Test-Path "$InstallDir\pesto.bat") { Remove-Item -Force "$InstallDir\pesto.bat" -ErrorAction SilentlyContinue }
+
 # Copy files from the script's directory
 Write-Host "Copying files from $ScriptDir..."
-$ExeSource = "$ScriptDir\dist\Pesto-win.exe"
-if (!(Test-Path $ExeSource)) {
-    # Backward-compatible fallback
-    $ExeSource = "$ScriptDir\dist\Pesto.exe"
-}
+$ExeSource = "$(Split-Path $ScriptDir -Parent)\dist\Pesto-win"
 
-if (!(Test-Path $ExeSource)) {
-    throw "Pesto executable not found in $ScriptDir\dist (expected Pesto-win.exe or legacy Pesto.exe)"
-}
+if (Test-Path $ExeSource -PathType Container) {
+    # Onedir build: copy the folder
+    Copy-Item $ExeSource $InstallDir -Recurse -Force
+    $ExeDest = "$InstallDir\Pesto-win\Pesto.exe"
 
-$ExeDest = "$InstallDir\Pesto-win.exe"
-Copy-Item $ExeSource $ExeDest -Force
+    # Remove the embedded helpers folder (we install the correct helper manually)
+    if (Test-Path "$InstallDir\Pesto-win\helpers") {
+        Remove-Item -Recurse -Force "$InstallDir\Pesto-win\helpers"
+    }
+
+} elseif (Test-Path $ExeSource -PathType Leaf) {
+    # Onefile build: copy the file
+    $ExeDest = "$InstallDir\Pesto-win.exe"
+    Copy-Item $ExeSource $ExeDest -Force
+} else {
+    throw "Pesto build not found at $ExeSource"
+}
 
 # Validate size (>1MB) and PE header (MZ)
 $Len = (Get-Item $ExeDest).Length
 if ($Len -lt 1000000) {
-    Remove-Item -Force $ExeDest -ErrorAction SilentlyContinue
+    if (Test-Path "$InstallDir\Pesto-win" -PathType Container) {
+        Remove-Item -Recurse -Force "$InstallDir\Pesto-win" -ErrorAction SilentlyContinue
+    } else {
+        Remove-Item -Force $ExeDest -ErrorAction SilentlyContinue
+    }
     throw "Installed executable is too small ($Len bytes). Expected a real PyInstaller binary (~8-12MB)."
 }
 
 $Header = Get-Content -Path $ExeDest -Encoding Byte -TotalCount 2
 if ($Header.Count -lt 2 -or $Header[0] -ne 0x4D -or $Header[1] -ne 0x5A) {
-    Remove-Item -Force $ExeDest -ErrorAction SilentlyContinue
+    if (Test-Path "$InstallDir\Pesto-win" -PathType Container) {
+        Remove-Item -Recurse -Force "$InstallDir\Pesto-win" -ErrorAction SilentlyContinue
+    } else {
+        Remove-Item -Force $ExeDest -ErrorAction SilentlyContinue
+    }
     throw "Installed file does not look like a Windows executable (missing 'MZ' header)."
 }
 
-Copy-Item "$ScriptDir\Settings.yaml" "$InstallDir\"
+if (Test-Path "$InstallDir\Pesto-win" -PathType Container) {
+    Copy-Item "$ScriptDir\Settings.yaml" "$InstallDir\Pesto-win\"
+} else {
+    Copy-Item "$ScriptDir\Settings.yaml" "$InstallDir\"
+}
 
 # Copy native helper binary (for high-performance operations)
 Write-Host "Installing native helper..."
 $HelperSource = "$ScriptDir\pesto-helper-windows-amd64.exe"
 if (Test-Path $HelperSource) {
-    Copy-Item $HelperSource "$InstallDir\" -Force
+    if (Test-Path "$InstallDir\Pesto-win" -PathType Container) {
+        Copy-Item $HelperSource "$InstallDir\Pesto-win\" -Force
+    } else {
+        Copy-Item $HelperSource "$InstallDir\" -Force
+    }
     Write-Host "Installed native helper: pesto-helper-windows-amd64.exe"
 } else {
     Write-Host "Warning: Native helper not found at $HelperSource"
@@ -56,7 +85,7 @@ if (Test-Path $HelperSource) {
 
 # Create wrapper PowerShell script for the executable
 $WrapperContent = @"
-& "$InstallDir\Pesto-win.exe" `$args
+& "$ExeDest" `$args
 "@
 
 $WrapperContent | Out-File -FilePath "$InstallDir\pesto.ps1" -Encoding UTF8
@@ -64,7 +93,7 @@ $WrapperContent | Out-File -FilePath "$InstallDir\pesto.ps1" -Encoding UTF8
 # Create a batch file wrapper for easier execution from Command Prompt
 $BatchContent = @"
 @echo off
-"$InstallDir\Pesto-win.exe" %*
+"$ExeDest" %*
 "@
 
 $BatchContent | Out-File -FilePath "$InstallDir\pesto.bat" -Encoding ASCII

@@ -17,72 +17,77 @@ mkdir -p "$INSTALL_DIR"
 # Copy files from the script's directory
 echo "Copying files from $SCRIPT_DIR..."
 OS_NAME="$(uname -s)"
-EXE_SRC=""
 if [ "$OS_NAME" = "Darwin" ]; then
-    EXE_SRC="$SCRIPT_DIR/dist/Pesto-mac"
+    EXE_NAME="Pesto-mac"
 else
-    EXE_SRC="$SCRIPT_DIR/dist/Pesto-linux"
-fi
-
-# Backward-compatible fallback
-if [ ! -f "$EXE_SRC" ]; then
-    if [ -f "$SCRIPT_DIR/dist/Pesto" ]; then
-        EXE_SRC="$SCRIPT_DIR/dist/Pesto"
-    fi
-fi
-
-if [ ! -f "$EXE_SRC" ]; then
-    echo "Error: Pesto executable not found in $SCRIPT_DIR/dist"
-    echo "Expected one of: Pesto-mac, Pesto-linux (or legacy Pesto)"
-    exit 1
+    EXE_NAME="Pesto-linux"
 fi
 
 # Remove any previous install artifacts first (prevents recursion issues)
-rm -f "$INSTALL_DIR/Pesto-mac" "$INSTALL_DIR/pesto"
+rm -rf "$INSTALL_DIR/$EXE_NAME" "$INSTALL_DIR/pesto"
 
-# Copy to a temp path first, then atomically move into place
-TMP_EXE="$INSTALL_DIR/Pesto.tmp"
-rm -f "$TMP_EXE"
-cp "$EXE_SRC" "$TMP_EXE"
-chmod +x "$TMP_EXE"
+EXE_SRC="$SCRIPT_DIR/dist/$EXE_NAME"
 
-# Remove macOS quarantine if present
-if command -v xattr >/dev/null 2>&1; then
-    xattr -d com.apple.quarantine "$TMP_EXE" 2>/dev/null || true
+if [ -f "$EXE_SRC" ]; then
+    # Onefile build: copy the single executable
+    cp "$EXE_SRC" "$INSTALL_DIR/$EXE_NAME"
+    EXE_PATH="$INSTALL_DIR/$EXE_NAME"
+elif [ -d "$EXE_SRC" ]; then
+    # Onedir build: copy the entire folder
+    cp -r "$EXE_SRC" "$INSTALL_DIR/$EXE_NAME"
+    EXE_PATH="$INSTALL_DIR/$EXE_NAME/$EXE_NAME"
+
+    # Remove the helpers folder if it exists (we install the correct helper manually)
+    if [ -d "$INSTALL_DIR/$EXE_NAME/helpers" ]; then
+        rm -rf "$INSTALL_DIR/$EXE_NAME/helpers"
+    fi
+else
+    echo "Error: Pesto build not found at $EXE_SRC"
+    exit 1
 fi
 
 # Validate size/type so we don't accidentally install a wrapper script
-EXE_SIZE=$(stat -f%z "$TMP_EXE" 2>/dev/null || stat -c%s "$TMP_EXE" 2>/dev/null || echo 0)
+EXE_SIZE=$(stat -f%z "$EXE_PATH" 2>/dev/null || stat -c%s "$EXE_PATH" 2>/dev/null || echo 0)
 if [ "$EXE_SIZE" -lt 1000000 ]; then
     echo "Error: Installed executable is too small ($EXE_SIZE bytes)."
     echo "Make sure you put the real PyInstaller binary in $SCRIPT_DIR/dist (expected ~8-12MB)."
-    rm -f "$TMP_EXE"
+    rm -rf "$INSTALL_DIR/$EXE_NAME"
     exit 1
 fi
 
 if command -v file >/dev/null 2>&1; then
-    FILE_INFO="$(file -b "$TMP_EXE" || true)"
+    FILE_INFO="$(file -b "$EXE_PATH" || true)"
     case "$OS_NAME" in
         Darwin)
             echo "$FILE_INFO" | grep -q "Mach-O" || {
                 echo "Error: Expected a Mach-O binary but got: $FILE_INFO"
-                rm -f "$TMP_EXE"
+                rm -rf "$INSTALL_DIR/$EXE_NAME"
                 exit 1
             }
             ;;
         Linux)
             echo "$FILE_INFO" | grep -q "ELF" || {
                 echo "Error: Expected an ELF binary but got: $FILE_INFO"
-                rm -f "$TMP_EXE"
+                rm -rf "$INSTALL_DIR/$EXE_NAME"
                 exit 1
             }
             ;;
     esac
 fi
 
-mv -f "$TMP_EXE" "$INSTALL_DIR/Pesto-mac"
+# Remove macOS quarantine if present
+if command -v xattr >/dev/null 2>&1; then
+    xattr -d com.apple.quarantine "$EXE_PATH" 2>/dev/null || true
+fi
 
-cp "$SCRIPT_DIR/Settings.yaml" "$INSTALL_DIR/"
+# Make executable
+chmod +x "$EXE_PATH"
+
+if [ -d "$INSTALL_DIR/$EXE_NAME" ]; then
+    cp "$SCRIPT_DIR/Settings.yaml" "$INSTALL_DIR/$EXE_NAME/"
+else
+    cp "$SCRIPT_DIR/Settings.yaml" "$INSTALL_DIR/"
+fi
 
 # Copy native helper binary (for high-performance operations)
 echo "Installing native helper..."
@@ -99,11 +104,18 @@ else
 fi
 
 if [ -f "$HELPER_SRC" ]; then
-    cp "$HELPER_SRC" "$INSTALL_DIR/"
-    chmod +x "$INSTALL_DIR/$(basename "$HELPER_SRC")"
+    if [ -d "$INSTALL_DIR/$EXE_NAME" ]; then
+        cp "$HELPER_SRC" "$INSTALL_DIR/$EXE_NAME/"
+        HELPER_DEST="$INSTALL_DIR/$EXE_NAME/$(basename "$HELPER_SRC")"
+    else
+        cp "$HELPER_SRC" "$INSTALL_DIR/"
+        HELPER_DEST="$INSTALL_DIR/$(basename "$HELPER_SRC")"
+    fi
+    
+    chmod +x "$HELPER_DEST"
     # Remove macOS quarantine if present
     if command -v xattr >/dev/null 2>&1; then
-        xattr -d com.apple.quarantine "$INSTALL_DIR/$(basename "$HELPER_SRC")" 2>/dev/null || true
+        xattr -d com.apple.quarantine "$HELPER_DEST" 2>/dev/null || true
     fi
     echo "Installed native helper: $(basename "$HELPER_SRC")"
 else
@@ -114,7 +126,7 @@ fi
 # Create wrapper script for the executable
 cat <<EOF > "$INSTALL_DIR/pesto"
 #!/bin/bash
-exec "$INSTALL_DIR/Pesto-mac" "\$@"
+exec "$EXE_PATH" "\$@"
 EOF
 
 # Make wrapper executable

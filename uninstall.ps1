@@ -6,7 +6,8 @@ Write-Host "Uninstalling Pesto..."
 # 1. Remove wrappers + executable (best-effort)
 $WrapperPS1 = "$InstallDir\pesto.ps1"
 $WrapperBat = "$InstallDir\pesto.bat"
-$ExePath = "$InstallDir\Pesto.exe"
+$ExePath = "$InstallDir\Pesto-win.exe"
+$ExeFolder = "$InstallDir\Pesto-win"
 
 if (Test-Path $WrapperPS1) {
     Write-Host "Removing PowerShell wrapper $WrapperPS1..."
@@ -21,6 +22,11 @@ if (Test-Path $WrapperBat) {
 if (Test-Path $ExePath) {
     Write-Host "Removing executable $ExePath..."
     Remove-Item $ExePath
+}
+
+if (Test-Path $ExeFolder -PathType Container) {
+    Write-Host "Removing executable folder $ExeFolder..."
+    Remove-Item -Recurse $ExeFolder
 }
 
 # 2. Remove from PATH
