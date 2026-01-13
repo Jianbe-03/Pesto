@@ -6,6 +6,13 @@ __pycache__/
 venv/
 *.spec
 
+# Explicitly track binaries
+!*.pyd
+!*.dll
+!*.exe
+!*.so
+!*.dylib
+
 # Pesto
 .pesto_id
 *.rbxm
