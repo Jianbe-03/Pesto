@@ -38,6 +38,10 @@ UseNativeHelpers              : true     # If true, uses compiled Go helpers for
 NativeHelperWorkers           : 8        # Number of parallel workers for native helper operations. Increase for large projects.
 NativeHelperTimeout           : 300      # Timeout in seconds for native helper operations.
 
+# Console Streaming Settings
+ConsoleStreaming              : true     # If true, streams console output from Roblox to the Pesto server (print, warn, error).
+ConsoleStreamingInterval      : 1.0      # Interval in seconds for sending console messages from Roblox to server.
+
 StatusHeader                  :
   Request-Type: GETStatus
 
