@@ -86,14 +86,7 @@ if (Test-Path $HelperSource) {
 # Create wrapper PowerShell script for the executable
 $WrapperContent = @"
 `$ExePath = "$ExeDest"
-`$ExeDir = Split-Path -Parent `$ExePath
-Push-Location `$ExeDir
-try {
-    & `$ExePath `$args
-}
-finally {
-    Pop-Location
-}
+& `$ExePath `$args
 "@
 
 $WrapperContent | Out-File -FilePath "$InstallDir\pesto.ps1" -Encoding UTF8
@@ -101,7 +94,6 @@ $WrapperContent | Out-File -FilePath "$InstallDir\pesto.ps1" -Encoding UTF8
 # Create a batch file wrapper for easier execution from Command Prompt
 $BatchContent = @"
 @echo off
-cd /d "$(Split-Path -Parent $ExeDest)"
 "$ExeDest" %*
 "@
 
