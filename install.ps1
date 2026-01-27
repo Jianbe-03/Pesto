@@ -52,7 +52,12 @@ if ($Len -lt 1000000) {
     throw "Installed executable is too small ($Len bytes). Expected a real PyInstaller binary (~8-12MB)."
 }
 
-$Header = Get-Content -Path $ExeDest -Encoding Byte -TotalCount 2
+if ($PSVersionTable.PSVersion.Major -ge 6) {
+    $Header = Get-Content -Path $ExeDest -AsByteStream -TotalCount 2
+} else {
+    $Header = Get-Content -Path $ExeDest -Encoding Byte -TotalCount 2
+}
+
 if ($Header.Count -lt 2 -or $Header[0] -ne 0x4D -or $Header[1] -ne 0x5A) {
     if (Test-Path "$InstallDir\Pesto-win" -PathType Container) {
         Remove-Item -Recurse -Force "$InstallDir\Pesto-win" -ErrorAction SilentlyContinue
