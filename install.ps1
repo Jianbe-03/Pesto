@@ -69,8 +69,10 @@ if ($Header.Count -lt 2 -or $Header[0] -ne 0x4D -or $Header[1] -ne 0x5A) {
 
 if (Test-Path "$InstallDir\Pesto-win" -PathType Container) {
     Copy-Item "$ScriptDir\Settings.yaml" "$InstallDir\Pesto-win\"
+    Copy-Item "$ScriptDir\Agents.md" "$InstallDir\Pesto-win\"
 } else {
     Copy-Item "$ScriptDir\Settings.yaml" "$InstallDir\"
+    Copy-Item "$ScriptDir\Agents.md" "$InstallDir\"
 }
 
 # Copy native helper binary (for high-performance operations)

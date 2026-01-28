@@ -85,8 +85,10 @@ chmod +x "$EXE_PATH"
 
 if [ -d "$INSTALL_DIR/$EXE_NAME" ]; then
     cp "$SCRIPT_DIR/Settings.yaml" "$INSTALL_DIR/$EXE_NAME/"
+    cp "$SCRIPT_DIR/Agents.md" "$INSTALL_DIR/$EXE_NAME/"
 else
     cp "$SCRIPT_DIR/Settings.yaml" "$INSTALL_DIR/"
+    cp "$SCRIPT_DIR/Agents.md" "$INSTALL_DIR/"
 fi
 
 # Copy native helper binary (for high-performance operations)
