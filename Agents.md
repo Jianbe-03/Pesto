@@ -5,7 +5,9 @@ This document provides instructions for AI agents working with Pesto-managed Rob
 ## Overview
 
 Pesto is a sync tool that manages Roblox projects as a file-based structure on disk. Each Roblox instance is represented as a folder containing:
-- `__Properties__.yaml` (or `.json`) - Instance properties including Name, ClassName, PestoId, Parent, etc.
+- `__Properties__.yaml` (or `.json`) - Instance properties including Name, ClassName, Parent, etc.
+- `__Attributes__.yaml` (or `.json`) - Instance attributes including PestoId and custom attributes
+- `__Tags__.yaml` (or `.json`) - CollectionService tags applied to the instance
 - `__Source__.luau` - Source code for Script, LocalScript, and ModuleScript instances
 
 ## Pesto Commands
@@ -61,11 +63,17 @@ project/
 ├── src/
 │   ├── ServerScriptService/
 │   │   ├── __Properties__.yaml
+│   │   ├── __Attributes__.yaml
+│   │   ├── __Tags__.yaml
 │   │   └── GameScript/
 │   │       ├── __Properties__.yaml
+│   │       ├── __Attributes__.yaml
+│   │       ├── __Tags__.yaml
 │   │       └── __Source__.luau
 │   ├── ReplicatedStorage/
 │   │   ├── __Properties__.yaml
+│   │   ├── __Attributes__.yaml
+│   │   ├── __Tags__.yaml
 │   │   └── Modules/
 │   │       └── ...
 │   └── Workspace/
@@ -80,10 +88,32 @@ Example `__Properties__.yaml`:
 Archivable: true
 ClassName: Script
 Name: MainScript
-PestoId: abc123-def456-...
 Parent: ServerScriptService
 Disabled: false
 ```
+
+## Attributes File Format
+
+Example `__Attributes__.yaml`:
+```yaml
+PestoId: abc123-def456-...
+CustomAttribute: "Hello World"
+MaxHealth: 100
+SpawnPoint: true
+```
+
+Attributes are key-value pairs that can be attached to any Roblox instance. They support various data types (strings, numbers, booleans, etc.) and are commonly used for storing custom data that doesn't fit into standard properties. The `PestoId` is now stored in `__Attributes__.yaml` instead of `__Properties__.yaml`. This is a unique identifier that links disk files to Roblox instances.
+
+## Tags File Format
+
+Example `__Tags__.yaml`:
+```yaml
+- Enemy
+- Respawnable
+- Boss
+```
+
+Tags are strings used by Roblox's CollectionService to group instances. They are commonly used for gameplay logic and organization.
 
 ## Important Rules for Agents
 
@@ -96,7 +126,9 @@ Disabled: false
 
 3. **Safe to edit directly**:
    - `__Source__.luau` files (source code)
-   - Properties in `__Properties__.yaml` (except PestoId)
+   - Properties in `__Properties__.yaml`
+   - Attributes in `__Attributes__.yaml` (except PestoId)
+   - Tags in `__Tags__.yaml`
 
 4. **Parent property** - This should match the Name property of the parent instance, not the folder name.
 
@@ -138,6 +170,8 @@ The `Settings.yaml` file controls Pesto behavior:
 ServerHost: localhost
 ServerPort: 6969
 PropertiesName: __Properties__
+AttributesName: __Attributes__
+TagsName: __Tags__
 SourceName: __Source__
 PropertiesFileExtension: yaml
 SourceFileExtension: luau
@@ -147,6 +181,6 @@ FoldersUseInstanceName: true
 ## Debugging Tips
 
 - Check the Pesto server output for sync errors
-- Verify PestoId values are unique
+- Verify PestoId values are unique (found in `__Attributes__.yaml`)
 - Ensure Parent properties match actual parent Names
 - Use `pesto Server` with verbose mode for detailed logging
