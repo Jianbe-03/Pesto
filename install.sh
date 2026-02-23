@@ -98,9 +98,13 @@ if [ "$OS_NAME" = "Darwin" ]; then
     ARCH="$(uname -m)"
     if [ "$ARCH" = "arm64" ]; then
         HELPER_SRC="$SCRIPT_DIR/pesto-helper-darwin-arm64"
+    elif [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "amd64" ]; then
+        HELPER_SRC="$SCRIPT_DIR/pesto-helper-darwin-amd64"
     else
+        echo "Warning: Unknown architecture '$ARCH', defaulting to amd64"
         HELPER_SRC="$SCRIPT_DIR/pesto-helper-darwin-amd64"
     fi
+    echo "Detected macOS architecture: $ARCH -> $(basename "$HELPER_SRC")"
 else
     HELPER_SRC="$SCRIPT_DIR/pesto-helper-linux-amd64"
 fi
